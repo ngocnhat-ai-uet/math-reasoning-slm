@@ -1,0 +1,13 @@
+.env
+
+# logs
+logs/
+
+# Byte-compiled
+__pycache__/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/

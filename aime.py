@@ -2,6 +2,7 @@ import os
 from pickle import FALSE
 import sys
 import json
+import ast
 from textwrap import indent
 import requests
 import argparse
@@ -70,21 +71,6 @@ def get_api_key():
         sys.exit(1)
     return api_key
 
-def read_file_content(filepath):
-    """
-    Reads and returns the content of a file.
-    Exits if the file cannot be read.
-    """
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"Error: File not found at '{filepath}'")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error reading file '{filepath}': {e}")
-        sys.exit(1)
-
 def build_request_payload(system_prompt, question_prompt, other_prompts=None):
     """
     Builds the JSON payload for the Gemini API request, using the
@@ -97,8 +83,11 @@ def build_request_payload(system_prompt, question_prompt, other_prompts=None):
     messages.append({"role": "user", "content": question_prompt})
     
     if other_prompts:
-        for prompt in other_prompts:
-            messages.append({"role": "user", "content": prompt})
+        if isinstance(other_prompts, str):
+            messages.append({"role": "user", "content": other_prompts})
+        else:
+            for prompt in other_prompts:
+                messages.append({"role": "user", "content": prompt})
     
     return messages
 
@@ -322,7 +311,7 @@ def agent(problem_statement, other_prompts=[], max_pass=5, max_fail=10):
         verify, good_verify = verify_solution(problem_statement, solution)
 
         if("yes" in good_verify.lower()):
-            print(">>>>>>> Solution is good, verifying again ...")
+            print(">>>>>>> Solution is good, verifying again to reach max_pass threshold...")
             correct_count += 1
             error_count = 0
  
@@ -339,13 +328,45 @@ def agent(problem_statement, other_prompts=[], max_pass=5, max_fail=10):
     if(not success):
         print(">>>>>>> Failed in finding a correct solution.")
         return None
-        
+
+def load_dataset_from_huggingface(dataset_name, split="train", limit=None, idx=None):
+    data = load_dataset(dataset_name, split=split)
+
+    # 'if idx:' would evaluate [] as False and incorrectly return the entire dataset (empty list is expected)  
+    if idx is not None:
+        return data.filter(lambda x: x["problem_idx"] in idx)
+    # 'if limit:' would evaluate 0 as False and incorrectly return the entire dataset (zero samples are expected)
+    if limit is not None:
+        return data.select(range(limit))
+    return data
+    # Nếu dùng 'if limit:', khi người dùng muốn lấy 0 mẫu (limit=0), nó sẽ trả về toàn bộ data.
+
+def solve_problem(problem_statement):
+    messages = build_request_payload(
+        system_prompt=straight_prompt,
+        question_prompt=problem_statement
+    )
+
+    print(f">>>>>> Initial prompt.")
+    print(json.dumps(messages, indent=4))
+
+    response = send_api_request(get_api_key(), messages)
+    output = extract_text_from_response(response)
+
+    print(">>>>>>> Solution:")
+    print(json.dumps(output, indent=4))
+
+    return output
+
 if __name__ == "__main__":
     # Set up argument parsing
     parser = argparse.ArgumentParser(description='IMO Problem Solver Agent')
-    parser.add_argument('problem_file', nargs='?', default='problems/imo01.txt', 
-                       help='Path to the problem statement file (default: problem_statement.txt)')
-    parser.add_argument('--log', '-l', type=str, help='Path to log file (optional)')
+    parser.add_argument('--mode', choices=('direct', 'agent'), default='direct',
+                        help='Run the direct solver or the solver-verifier agent (default: direct)')
+    parser.add_argument('--log_dir', type=str, help='Directory for per-problem logs when using a dataset (optional)')
+    parser.add_argument('--dataset_name', type=str, help='Hugging Face dataset name (optional)')
+    parser.add_argument('--limit', type=int, default=None, help='Limit the number of dataset samples to run (optional)')
+    parser.add_argument('--idx', type=ast.literal_eval, default=None, help="List/tuple of problem_idx to run, e.g. \"[1, 2, 3]\" or \"(1, 2, 3)\" (optional)")
     parser.add_argument('--other_prompts', '-o', type=str, help='Other prompts (optional)')
     parser.add_argument("--max_runs", '-m', type=int, default=10, help='Maximum number of runs (default: 10)')
     parser.add_argument("--max_pass", type=int, default=5, help='Maximum number of correct verifications before success (default: 5)')
@@ -356,33 +377,46 @@ if __name__ == "__main__":
     max_runs = args.max_runs
     max_pass = args.max_pass
     max_fail = args.max_fail
+    log_dir = args.log_dir
+    mode = args.mode
     
     other_prompts = []
     if args.other_prompts:
-        other_prompts = args.other_prompts.split(',')
+        other_prompts = args.other_prompts
 
-    print(">>>>>>> Other prompts:")
-    print(other_prompts)
+    if not log_dir:
+        print("Error: --log_dir is required.")
+        sys.exit(1)
+    os.makedirs(log_dir, exist_ok=True)
 
-    # Set up logging if log file is specified
-    if args.log:
-        if not set_log_file(args.log):
+    data = load_dataset_from_huggingface(args.dataset_name, limit=args.limit, idx=args.idx)
+
+    for sample in data:
+        problem_idx = sample["problem_idx"]
+        problem_statement = sample["problem"]
+        log_file_path = os.path.join(log_dir, f"{problem_idx}.log")
+
+        # OPEN LOGFILE
+        if not set_log_file(log_file_path):
             sys.exit(1)
-        print(f"Logging to file: {args.log}")
-    
-    problem_statement = read_file_content(args.problem_file)
 
-    for i in range(max_runs):
-        print(f"\n\n>>>>>>>>>>>>>>>>>>>>>>>>>> Run {i} of {max_runs} ...")
-        try:
-            sol = agent(problem_statement, other_prompts, max_pass, max_fail)
-            if(sol is not None):
-                print(f">>>>>>> Found a correct solution in run {i}.")
-                print(json.dumps(sol, indent=4))
-                break
-        except Exception as e:
-            print(f">>>>>>> Error in run {i}: {e}")
-            continue
-    
-    # Close log file if it was opened
-    close_log_file()
+        for i in range(max_runs):
+            print(f"\n\n>>>>>>>>>>>>>>>>>>>>>>>>>> Run {i} of {max_runs} ...")
+            try:
+                if mode == "agent":
+                    sol = agent(problem_statement, other_prompts, max_pass, max_fail)
+                else:
+                    sol = solve_problem(problem_statement)
+                    
+                if(sol is not None):
+                    if mode == "agent":
+                        print(f">>>>>>> Found a correct solution in run {i}.")
+                    else:
+                        print(f">>>>>>> Generated solution in run {i}.")
+                    print(json.dumps(sol, indent=4))
+                    break
+            except Exception as e:
+                print(f">>>>>>> Error in run {i}: {e}")
+                continue
+
+        close_log_file()

@@ -10,7 +10,8 @@ import logging
 from dotenv import load_dotenv
 import ollama
 from datasets import load_dataset
-from extra_prompts import *
+from prompts.agent_prompts.v2 import *
+from prompts.direct_prompts.v3 import *
 
 load_dotenv()
 
@@ -229,7 +230,7 @@ Response in exactly "yes" or "no". No other words.
     print(o)
     return "yes" in o.lower()
 
-def init_explorations(problem_statement, verbose=True, other_prompts=[]):
+def init_explorations(problem_statement, verbose=True, other_prompts=[], check_complete=True):
     messages = build_request_payload(
             system_prompt=step1_prompt,
             question_prompt=problem_statement,
@@ -257,23 +258,24 @@ def init_explorations(problem_statement, verbose=True, other_prompts=[]):
     print(f">>>>>>> Corrected solution: ")
     print(json.dumps(solution, indent=4))
     
-    # print(f">>>>>>> Check if solution is complete:"  )
-    # is_complete = check_if_solution_claimed_complete(solution)
-    # if not is_complete:
-    #     print(f">>>>>>> Solution is not complete. Failed.")
-    #     return None, None, None, None
+    if check_complete:
+        print(f">>>>>>> Check if solution is complete:"  )
+        is_complete = check_if_solution_claimed_complete(solution)
+        if not is_complete:
+            print(f">>>>>>> Solution is not complete. Failed.")
+            return None, None, None, None
+    else:
+        print(">>>>>>> Skip completeness check (--check_complete=off).")
     
     print(f">>>>>>> Vefify the solution.")
     verify, good_verify = verify_solution(problem_statement, solution, verbose)
-
-    print(f">>>>>>> Initial verification: ")
-    print(json.dumps(verify, indent=4))
-    print(f">>>>>>> verify results: {good_verify}")
     
     return messages, solution, verify, good_verify
 
-def agent(problem_statement, other_prompts=[], max_pass=5, max_fail=10):
-    messages, solution, verify, good_verify = init_explorations(problem_statement, True, other_prompts)
+def agent(problem_statement, other_prompts=[], max_pass=5, max_fail=10, check_complete=True):
+    messages, solution, verify, good_verify = init_explorations(
+        problem_statement, True, other_prompts, check_complete
+    )
 
     if(solution is None):
         print(">>>>>>> Failed in finding a complete solution.")
@@ -314,11 +316,14 @@ def agent(problem_statement, other_prompts=[], max_pass=5, max_fail=10):
             print(json.dumps(solution, indent=4))
 
 
-            # print(f">>>>>>> Check if solution is complete:"  )
-            # is_complete = check_if_solution_claimed_complete(solution)
-            # if not is_complete:
-            #     print(f">>>>>>> Solution is not complete. Failed.")
-            #     return None
+            if check_complete:
+                print(f">>>>>>> Check if solution is complete:"  )
+                is_complete = check_if_solution_claimed_complete(solution)
+                if not is_complete:
+                    print(f">>>>>>> Solution is not complete. Failed.")
+                    return None
+            else:
+                print(">>>>>>> Skip completeness check (--check_complete=off).")
 
         print(f">>>>>>> Verify the solution.")
         verify, good_verify = verify_solution(problem_statement, solution)
@@ -384,12 +389,19 @@ if __name__ == "__main__":
     parser.add_argument("--max_runs", '-m', type=int, default=10, help='Maximum number of runs (default: 10)')
     parser.add_argument("--max_pass", type=int, default=5, help='Maximum number of correct verifications before success (default: 5)')
     parser.add_argument("--max_fail", type=int, default=10, help='Maximum number of failed verifications before stopping (default: 10)')
+    parser.add_argument(
+        "--check_complete",
+        choices=("on", "off"),
+        default="on",
+        help='Turn on/off completeness check in agent mode (default: on)',
+    )
     
     args = parser.parse_args()
 
     max_runs = args.max_runs
     max_pass = args.max_pass
     max_fail = args.max_fail
+    check_complete = args.check_complete == "on"
     log_dir = args.log_dir
     mode = args.mode
     
@@ -414,10 +426,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
         for i in range(max_runs):
-            print(f"\n\n>>>>>>>>>>>>>>>>>>>>>>>>>> Run {i} of {max_runs} ...")
+            print(f"\n\n>>>>>>> Run {i} of {max_runs} ...")
             try:
                 if mode == "agent":
-                    sol = agent(problem_statement, other_prompts, max_pass, max_fail)
+                    sol = agent(problem_statement, other_prompts, max_pass, max_fail, check_complete)
                 else:
                     sol = solve_problem(problem_statement)
                     

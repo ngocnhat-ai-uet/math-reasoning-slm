@@ -1,8 +1,12 @@
 .env
+run.py
+pretty_print_solution.ipynb
 
-# logs, problems
+# logs, problems, prompts, archive (code)
 logs/
 problems/
+prompts/
+archive/
 
 # Byte-compiled
 __pycache__/

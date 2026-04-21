@@ -10,14 +10,14 @@ import logging
 from dotenv import load_dotenv
 import ollama
 from datasets import load_dataset
-from prompts.agent_prompts.v2 import *
+from prompts.agent_prompts.v3 import *
 from prompts.direct_prompts.v3 import *
 
 load_dotenv()
 
 # --- CONFIGURATION ---
 MODEL_NAME = os.getenv("MODEL_NAME", "phi3")
-API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+API_URL = os.getenv("OLLAMA_API_URL", "https://strategic-passable-chummy.ngrok-free.dev/")
 
 _ollama_client = None
 
@@ -68,13 +68,6 @@ def get_ollama_client():
         _ollama_client = ollama.Client(host=API_URL)
     return _ollama_client
 
-def _swap_http_scheme(url: str) -> str:
-    if url.startswith("https://"):
-        return "http://" + url[len("https://"):]
-    if url.startswith("http://"):
-        return "https://" + url[len("http://"):]
-    return url
-
 def build_request_payload(system_prompt, question_prompt, other_prompts=None):
     """
     Builds the JSON payload for the Gemini API request, using the
@@ -109,22 +102,7 @@ def send_api_request(messages):
         return response
     except Exception as e:
         err = str(e)
-        if "SSL" in err or "ssl" in err:
-            fallback_url = _swap_http_scheme(API_URL)
-            if fallback_url != API_URL:
-                try:
-                    print(f"SSL error with {API_URL}. Retrying with {fallback_url} ...")
-                    fallback_client = ollama.Client(host=fallback_url)
-                    response = fallback_client.chat(
-                        model=MODEL_NAME,
-                        messages=messages,
-                        options={"temperature": 0.1},
-                    )
-                    return response
-                except Exception as fallback_e:
-                    print(f"Retry with {fallback_url} failed: {fallback_e}")
         print(f"Error during API request: {e}")
-        print(f"Current OLLAMA_API_URL={API_URL}")
         sys.exit(1)
 
 def extract_text_from_response(response):
@@ -359,26 +337,55 @@ def load_dataset_from_huggingface(dataset_name, split="train", limit=None, idx=N
     return data
     # Nếu dùng 'if limit:', khi người dùng muốn lấy 0 mẫu (limit=0), nó sẽ trả về toàn bộ data.
 
-def solve_problem(problem_statement):
+def direct_solver(problem_statement, verbose=True, other_prompts=[], check_complete=True):
     messages = build_request_payload(
-        system_prompt=straight_prompt,
-        question_prompt=problem_statement
-    )
+            system_prompt=step1_prompt,
+            question_prompt=problem_statement,
+            other_prompts = other_prompts
+        )
 
     print(f">>>>>> Initial prompt.")
     print(json.dumps(messages, indent=4))
 
-    response = send_api_request(messages)
-    output = extract_text_from_response(response)
+    response1 = send_api_request(messages)
+    output1 = extract_text_from_response(response1)
 
-    print(">>>>>>> Solution:")
-    print(json.dumps(output, indent=4))
+    print(f">>>>>>> First solution: ") 
+    print(json.dumps(output1, indent=4))
 
-    return output
+    print(f">>>>>>> Self improvement start:")
+    improvement_messages = messages.copy()
+    improvement_messages.append({"role": "assistant", "content": output1})
+    improvement_messages.append({"role": "user", "content": step2_self_improvement_prompt})
+
+    response2 = send_api_request(improvement_messages)
+    solution = extract_text_from_response(response2)
+    print(f">>>>>>> Corrected solution: ")
+    print(json.dumps(solution, indent=4))
+    
+    return solution
+
+def baseline_solver(problem_statement, verbose=True, other_prompts=[], check_complete=True):
+    messages = build_request_payload(
+            system_prompt=baseline_prompt,
+            question_prompt=problem_statement,
+            other_prompts = other_prompts
+        )
+
+    print(f">>>>>> Initial prompt.")
+    print(json.dumps(messages, indent=4))
+
+    response1 = send_api_request(messages)
+    solution = extract_text_from_response(response1)
+
+    print(f">>>>>>> First solution: ") 
+    print(json.dumps(solution, indent=4))
+    
+    return solution
 
 if __name__ == "__main__":
     # Set up argument parsing
-    parser = argparse.ArgumentParser(description='IMO Problem Solver Agent')
+    parser = argparse.ArgumentParser(description='MATH Problem Solver Agent')
     parser.add_argument('--mode', choices=('direct', 'agent'), default='direct',
                         help='Run the direct solver or the solver-verifier agent (default: direct)')
     parser.add_argument('--log_dir', type=str, help='Directory for per-problem logs when using a dataset (optional)')
@@ -426,12 +433,13 @@ if __name__ == "__main__":
             sys.exit(1)
 
         for i in range(max_runs):
-            print(f"\n\n>>>>>>> Run {i} of {max_runs} ...")
+            print(f"\n\n>>>>>> Run {i} of {max_runs} ...")
             try:
                 if mode == "agent":
                     sol = agent(problem_statement, other_prompts, max_pass, max_fail, check_complete)
                 else:
-                    sol = solve_problem(problem_statement)
+                    # sol = baseline_solver(problem_statement)
+                    sol = direct_solver(problem_statement)
                     
                 if(sol is not None):
                     if mode == "agent":

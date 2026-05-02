@@ -7,8 +7,6 @@ prompts/
 archive/
 notebook/
 others/
-data/
-tokenizer/
 
 # Byte-compiled
 __pycache__/

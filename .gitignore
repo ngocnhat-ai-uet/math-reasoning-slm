@@ -1,12 +1,14 @@
 .env
 run.py
-pretty_print_solution.ipynb
 
 # logs, problems, prompts, archive (code)
 logs/
-problems/
 prompts/
 archive/
+notebook/
+others/
+data/
+tokenizer/
 
 # Byte-compiled
 __pycache__/

@@ -1,0 +1,31 @@
+{
+  "job_type": "infer",
+  "experiment_id": "TN01_base_inference",
+  "run_id": "tn01_base_aime2024_nohint_pv1_dv1",
+  "output_root": "experiments",
+  "dataset": {
+    "name": "aime2024",
+    "path": "data/test/aime2024_test.json",
+    "template": "configs/chat_template/chat_template.jinja",
+    "limit": 2
+  },
+  "prompt": {
+    "condition": "nohint",
+    "prompt_version": "pv1"
+  },
+  "inference": {
+    "enable_chunked_prefill": true,
+    "seed": 777,
+    "gpu_memory_utilization": 0.9,
+    "temperature": 0.0,
+    "top_k": 1,
+    "trust_remote_code": true,
+    "enforce_eager": false,
+    "max_model_len": 4096,
+    "max_new_tokens": 2048,
+    "batch_size": 32
+  },
+  "models": {
+    "student": "student/Qwen/Qwen2.5-0.5B-Instruct/"
+  }
+}

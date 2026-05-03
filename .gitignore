@@ -1,12 +1,9 @@
 .env
 run.py
 
-# logs, problems, prompts, archive (code)
-logs/
-prompts/
+# notebook, archive
 archive/
 notebook/
-others/
 
 # Byte-compiled
 __pycache__/

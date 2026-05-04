@@ -1,0 +1,31 @@
+{
+  "job_type": "infer",
+  "experiment_id": "TN01_base_inference",
+  "run_id": "tn01_gemma4e2b_base_bespoke_concise_pv1",
+  "output_root": "thesis_experiments/experiments",
+  "dataset": {
+    "name": "bespoke",
+    "data_path": "thesis_experiments/data/processed/bespoke.parquet",
+    "hint_path": "thesis_experiments/data/processed/hints.parquet",
+    "template": "configs/chat_template/chat_template.jinja"
+  },
+  "prompt": {
+    "condition": "concise",
+    "prompt_version": "pv1"
+  },
+  "inference": {
+    "enable_chunked_prefill": true,
+    "seed": 9,
+    "gpu_memory_utilization": 0.9,
+    "temperature": 0.0,
+    "top_k": 1,
+    "trust_remote_code": true,
+    "enforce_eager": false,
+    "max_model_len": 4096,
+    "max_new_tokens": 4096,
+    "batch_size": 8
+  },
+  "models": {
+    "student": "google/gemma-4-2b-it"
+  }
+}

@@ -14,9 +14,12 @@ from vllm import LLM, SamplingParams
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+SYSTEM_PROMPT = r"You are a careful math solver. Think through the solution step by step before writing the final answer. Put the final answer inside \boxed{}."
 
+# Input: dataset_path (jsonl/parquet)
+# Output: list of dict
 def load_records(dataset_config):
-    dataset_path = dataset_config["path"]
+    dataset_path = dataset_config["data_path"]
     suffix = Path(dataset_path).suffix.lower()
 
     if suffix == ".json":
@@ -42,26 +45,28 @@ def load_records(dataset_config):
     raise ValueError(f"Unsupported dataset format: {dataset_path}")
 
 
-def load_hints(hints_path):
-    if not hints_path:
+# Input: hint_path (jsonl/parquet)
+# Output: dict
+def load_hints(hint_path):
+    if not hint_path:
         return {}
 
-    suffix = Path(hints_path).suffix.lower()
+    suffix = Path(hint_path).suffix.lower()
     if suffix == ".parquet":
-        rows = load_dataset("parquet", data_files=hints_path)["train"]
+        rows = load_dataset("parquet", data_files=hint_path)["train"]
         records = [dict(item) for item in rows]
     elif suffix == ".json":
-        with open(hints_path, "r", encoding="utf-8") as file:
+        with open(hint_path, "r", encoding="utf-8") as file:
             records = json.load(file)
     elif suffix == ".jsonl":
         records = []
-        with open(hints_path, "r", encoding="utf-8") as file:
+        with open(hint_path, "r", encoding="utf-8") as file:
             for line in file:
                 line = line.strip()
                 if line:
                     records.append(json.loads(line))
     else:
-        raise ValueError(f"Unsupported hints format: {hints_path}")
+        raise ValueError(f"Unsupported hints format: {hint_path}")
 
     return {str(item["question_idx"]): item for item in records if "question_idx" in item}
 
@@ -92,9 +97,6 @@ def resolve_hint(record, hints_by_id, condition):
     hint_field = hint_fields.get(condition)
     if hint_field is None:
         raise ValueError(f"Unsupported prompt condition: {condition}")
-
-    if hint_field in record and record[hint_field]:
-        return str(record[hint_field])
 
     question_idx = str(record.get("question_idx", record.get("index", record.get("id", ""))))
     hint_record = hints_by_id.get(question_idx, {})
@@ -156,15 +158,15 @@ def load_tokenizer_and_vllm(config, eos_token=None):
 
 
 def render_inputs(records, config):
-    full_path = config["dataset"]["template"]
-    template_dir = os.path.dirname(full_path)
-    template_file = os.path.basename(full_path)
+    template_path = config["dataset"]["template"]
+    template_dir = os.path.dirname(template_path)
+    template_file = os.path.basename(template_path)
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template(template_file)
 
     prompt_config = config.get("prompt", {})
-    condition = prompt_config.get("condition", "nohint")
-    hints_by_id = load_hints(config["dataset"].get("hints_path"))
+    condition = prompt_config.get("condition", "nohint") # return nohint/concise/detail...
+    hints_by_id = load_hints(config["dataset"].get("hint_path")) # dict: question_idx : [list of hint]
 
     rendered = []
     for index, record in enumerate(records):
@@ -172,13 +174,13 @@ def render_inputs(records, config):
         question_idx = get_question_idx(record, index)
         hint = resolve_hint(record, hints_by_id, condition)
         prompt_text = build_prompt_text(question, hint, prompt_config)
-        message = {"role": "user", "content": prompt_text}
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_text},
+        ]
         full_text = template.render(
-            messages=[message],
-            message=message,
+            messages=messages,
             add_generation_prompt=True,
-            add_output=False,
-            tools=[],
         )
         rendered.append(
             {
@@ -208,12 +210,9 @@ def prepare_run_dirs(config):
     experiment_id = config.get("experiment_id", "TN01_base_inference")
     run_id = config["run_id"]
     root_dir = Path(config.get("output_root", "experiments"))
-    experiment_dir = root_dir / experiment_id
-    run_dir = experiment_dir / "runs" / run_id
+    run_dir = root_dir / experiment_id / "runs" / run_id
 
-    for subdir in ("raw", "processed", "metrics"):
-        (run_dir / subdir).mkdir(parents=True, exist_ok=True)
-    (experiment_dir / "derived").mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
     write_resolved_config(config, run_dir)
     return run_dir
 
@@ -225,9 +224,9 @@ def generate(config):
         records = records[: int(limit)]
 
     rendered = render_inputs(records, config)
-    tokenizer, llm = load_tokenizer_and_vllm(config)
+    _, llm = load_tokenizer_and_vllm(config)
     run_dir = prepare_run_dirs(config)
-    raw_path = run_dir / "raw" / "generations.jsonl"
+    generations_path = run_dir / "generations.jsonl"
 
     batch_size = config["inference"].get("batch_size", 32)
     sampling_params = SamplingParams(
@@ -238,9 +237,10 @@ def generate(config):
         skip_special_tokens=False,
         ignore_eos=False,
         max_tokens=config["inference"]["max_new_tokens"],
+        stop=["<turn|>"],
     )
 
-    with open(raw_path, "w", encoding="utf-8") as output_file:
+    with open(generations_path, "w", encoding="utf-8") as output_file:
         for start in tqdm(range(0, len(rendered), batch_size), desc="Generating responses"):
             batch = rendered[start:start + batch_size]
             outputs = llm.generate([item["input_text"] for item in batch], sampling_params)
@@ -254,11 +254,12 @@ def generate(config):
                     "hint": item["hint"],
                     "label": item["label"],
                     "model_output": first_output.text,
+                    "output_token_length": len(getattr(first_output, "token_ids", []) or []),
                     "finish_reason": getattr(first_output, "finish_reason", None),
                 }
                 output_file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    logging.info(f"Raw generations written to {raw_path}")
+    logging.info(f"Generations written to {generations_path}")
 
 
 def main():

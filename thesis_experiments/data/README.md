@@ -32,7 +32,7 @@ hints.parquent
 - model
 - hint_valid
 
-# data/labels
+# data/labels/tn01_bespoke_hint_classification_pv1.parquet
 
 Gồm static label (TN01) và dynamic label (TN04)
 

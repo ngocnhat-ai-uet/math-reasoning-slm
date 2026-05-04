@@ -13,3 +13,8 @@ tokenizers==0.21.1
 vllm==0.8.5
 PyYAML==6.0.2
 Jinja2==3.1.6
+torch==2.6.0
+tqdm==4.67.1
+pandas==2.2.3
+pyarrow==20.0.0
+ollama==0.5.1

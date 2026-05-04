@@ -2,13 +2,12 @@
   "job_type": "infer",
   "experiment_id": "TN01_base_inference",
   "run_id": "tn01_e2b_base_aime2024_nohint_pv1",
-  "output_root": "experiments",
+  "output_root": "thesis_experiments/experiments",
   "dataset": {
     "name": "aime2024",
     "data_path": "data/test/aime2024_test.json",
     "hint_path": "data/train/hints.parquet",
-    "template": "configs/chat_template/chat_template.jinja",
-    "limit": 2
+    "template": "configs/chat_template/chat_template.jinja"
   },
   "prompt": {
     "condition": "nohint",

@@ -181,6 +181,7 @@ def render_inputs(records, config):
         full_text = template.render(
             messages=messages,
             add_generation_prompt=True,
+            enable_thinking=config["inference"].get("enable_thinking", True),
         )
         rendered.append(
             {
@@ -232,7 +233,10 @@ def generate(config):
     sampling_params = SamplingParams(
         n=1,
         top_k=config["inference"].get("top_k", 1),
+        top_p=config["inference"].get("top_p", 1.0),
+        min_p=config["inference"].get("min_p", 0.0),
         temperature=config["inference"]["temperature"],
+        presence_penalty=config["inference"].get("presence_penalty", 0.0),
         seed=config["inference"]["seed"],
         skip_special_tokens=False,
         ignore_eos=False,

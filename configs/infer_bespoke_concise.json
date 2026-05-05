@@ -26,9 +26,9 @@
     "trust_remote_code": true,
     "enforce_eager": false,
     "attention_backend": "TRITON_ATTN",
-    "max_model_len": 4096,
-    "max_new_tokens": 4096,
-    "batch_size": 8
+    "max_model_len": 8192,
+    "max_new_tokens": 8192,
+    "batch_size": 512
   },
   "models": {
     "student": "Qwen/Qwen3-0.6B"

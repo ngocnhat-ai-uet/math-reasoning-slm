@@ -66,7 +66,7 @@ def process(job_type, config_path):
         sys.exit(1)
 
     script_path = os.path.join(SCRIPT_DIR, entrypoints[job_type])
-    cmd = f'python "{script_path}" --config "{config_path}"'
+    cmd = f'"{sys.executable}" "{script_path}" --config "{config_path}"'
     logging.info(f"Running command: {cmd}")
     success = run_cmd(cmd)
     if not success:

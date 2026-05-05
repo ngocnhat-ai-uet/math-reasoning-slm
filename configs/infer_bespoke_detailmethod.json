@@ -1,7 +1,7 @@
 {
   "job_type": "infer",
   "experiment_id": "TN01_base_inference",
-  "run_id": "tn01_qwen3_0.6b_base_bespoke_detailmethod_pv1",
+  "run_id": "tn01_qwen3_1.7b_base_bespoke_detailmethod_pv1",
   "output_root": "experiments",
   "dataset": {
     "name": "bespoke",
@@ -25,12 +25,12 @@
     "enable_thinking": true,
     "trust_remote_code": true,
     "enforce_eager": false,
-    "attention_backend": "TRITON_ATTN",
-    "max_model_len": 4096,
-    "max_new_tokens": 4096,
+    "attention_backend": null,
+    "max_model_len": 8192,
+    "max_new_tokens": 8192,
     "batch_size": 512
   },
   "models": {
-    "student": "Qwen/Qwen3-0.6B"
+    "student": "Qwen/Qwen3-1.7B"
   }
 }

@@ -1,0 +1,30 @@
+job_type: infer
+experiment_id: TN01_base_inference
+run_id: tn01_qwen3_1.7b_base_bespoke_detailscaffold_pv1
+output_root: experiments
+dataset:
+  name: bespoke
+  data_path: data/train/bespoke_math_dataset.parquet
+  hint_path: data/train/hints.parquet
+  template: configs/chat_template/chat_template.jinja
+prompt:
+  condition: detailscaffold
+  prompt_version: pv1
+inference:
+  enable_chunked_prefill: true
+  seed: 9
+  gpu_memory_utilization: 0.9
+  temperature: 0.1
+  top_k: 20
+  top_p: 0.9
+  min_p: 0.0
+  presence_penalty: 0.0
+  enable_thinking: true
+  trust_remote_code: true
+  enforce_eager: false
+  attention_backend: null
+  max_model_len: 8192
+  max_new_tokens: 8192
+  batch_size: 512
+models:
+  student: Qwen/Qwen3-1.7B

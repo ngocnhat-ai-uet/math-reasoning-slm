@@ -1,12 +1,12 @@
 {
   "job_type": "infer",
   "experiment_id": "TN01_base_inference",
-  "run_id": "tn01_qwen3_1.7b_base_bespoke_nohint_pv1",
+  "run_id": "tn01_qwen3_1.7b_base_omni_gt2000_nohint_pv1",
   "output_root": "experiments",
   "dataset": {
-    "name": "bespoke",
-    "data_path": "data/train/bespoke_math_dataset.parquet",
-    "hint_path": "data/train/hints.parquet",
+    "name": "omni",
+    "data_path": "data/train/omni_math_dataset_gt2000.parquet",
+    "hint_path": "data/train/omni_hints_checkpoint_gt2000.parquet",
     "template": "configs/chat_template/chat_template.jinja"
   },
   "prompt": {

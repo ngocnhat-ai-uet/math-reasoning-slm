@@ -1,1 +1,0 @@
-n{"run_id": "tn01_qwen3_0.6b_base_bespoke_nohint_bf16_smoke", "question_idx": "00077f9cf9", "question": "The measures of a pair of supplementary angles are in the ratio of 7:2. How many degrees are in the measure of their positive difference?", "hint": null, "label": "100", "model_output": "\n\n\nOkay, so I need to find", "output_token_length": 8, "finish_reason": "length"}

@@ -14,13 +14,17 @@ load_dotenv()
 # CONFIG
 # =========================
 
-INPUT_PATH = "data/train/bespoke_math_dataset.parquet"
-OUTPUT_PATH = "data/train/hints.parquet"
-CHECKPOINT_PATH = "data/train/hints_checkpoint.jsonl"
-BATCH_DIR = "data/train/hint_batches"
+# INPUT_PATH = "data/train/bespoke_math_dataset.parquet"
+# OUTPUT_PATH = "data/train/hints.parquet"
+# CHECKPOINT_PATH = "data/train/hints_checkpoint.jsonl"
+# BATCH_DIR = "data/train/hint_batches"
+INPUT_PATH = "data/train/omni_math_dataset_gt2000.parquet"
+OUTPUT_PATH = "data/train/omni_hints.parquet"
+CHECKPOINT_PATH = "data/train/omni_hints_checkpoint.jsonl"
+BATCH_DIR = "data/train/omni_hint_batches"
 
 MODEL = "gpt-5.4-nano"
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.1"))
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1800"))
 PROMPT_CACHE_KEY = "hint_generation_v3_three_level"
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1000"))
@@ -33,7 +37,7 @@ MAX_RETRIES = 5
 # PROMPT
 # =========================
 
-HINT_GENERATION_PROMPT = """
+HINT_GENERATION_PROMPT = r"""
 You are generating three levels of hints for a math problem.
 
 Create:
@@ -76,7 +80,7 @@ Rules for detailed_method_hint:
 - Describe the method path, not the execution path.
 - Stop once the correct setup or reasoning framework is identified; leave the actual solving/evaluation to the student.
 - Use the minimum number of points needed to reflect the solution path.
-- Usually use 2–5 points; for unusually complex solutions, use up to 7.
+- Usually use 2-5 points; for unusually complex solutions, use up to 7.
 - Each point should describe one method choice, representation, transformation idea, or reasoning direction.
 - You may mention definitions, formulas, substitutions, transformations, cases, invariants, or proof strategies used in the solution.
 - Prefer verbal method descriptions over explicit formulas; if a formula is needed, write it in compact ASCII plain text.
@@ -89,7 +93,7 @@ Rules for detailed_scaffold_hint:
 - Return detailed_scaffold_hint as a JSON list of concise scaffold points.
 - It should be stronger and more explicit than detailed_method_hint, but still not a complete solution.
 - Use the minimum number of points needed to help the student follow the solution path.
-- Usually use 3–6 points; for unusually complex solutions, use up to 8.
+- Usually use 3-6 points; for unusually complex solutions, use up to 8.
 - Each point should describe one concrete mathematical action or non-final reasoning checkpoint.
 - It may include explicit setup, formulas, substitutions, or non-final equations from the solution path.
 - If formulas are used, write them in compact ASCII plain text.
@@ -149,7 +153,7 @@ Return output as valid JSON only."""
 
 
 def build_prompt_parts(question: str, solution: str) -> tuple[str, str]:
-    """Keep HINT_GENERATION_PROMPT unchanged, but send stable text separately.
+    """Keep HINT_GENERATION_PROMPT stable, but send row data separately.
 
     The system prompt is identical for all rows, so the Responses API can reuse
     prompt caching for the long instruction prefix. The user input only contains
@@ -157,6 +161,7 @@ def build_prompt_parts(question: str, solution: str) -> tuple[str, str]:
     """
     before, after = HINT_GENERATION_PROMPT.split(PROMPT_QS_BLOCK)
     system_prompt = f"{before.rstrip()}\n\n{after.lstrip()}".strip()
+    system_prompt = system_prompt.replace("{{", "{").replace("}}", "}")
     user_input = QUESTION_SOLUTION_TEMPLATE.format(
         question=question,
         solution=solution,
@@ -258,6 +263,97 @@ def normalize_hint_obj(obj: dict) -> dict:
     }
 
 
+USAGE_FIELDS = (
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "total_tokens",
+)
+
+
+def as_dict(value) -> dict:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    return {}
+
+
+def as_int_or_none(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_usage(value) -> dict:
+    data = as_dict(value)
+    usage = as_dict(data.get("usage")) if data else as_dict(getattr(value, "usage", None))
+    if not usage:
+        return {}
+
+    input_details = as_dict(
+        usage.get("input_tokens_details")
+        or usage.get("prompt_tokens_details")
+    )
+
+    parsed = {
+        "input_tokens": as_int_or_none(
+            usage.get("input_tokens") or usage.get("prompt_tokens")
+        ),
+        "cached_input_tokens": as_int_or_none(input_details.get("cached_tokens")),
+        "output_tokens": as_int_or_none(
+            usage.get("output_tokens") or usage.get("completion_tokens")
+        ),
+        "total_tokens": as_int_or_none(usage.get("total_tokens")),
+    }
+    return {key: value for key, value in parsed.items() if value is not None}
+
+
+def usage_record_fields(usage: dict) -> dict:
+    return {key: usage[key] for key in USAGE_FIELDS if key in usage}
+
+
+def format_usage(usage: dict) -> str:
+    input_tokens = usage.get("input_tokens") or 0
+    cached_tokens = usage.get("cached_input_tokens") or 0
+    cache_ratio = cached_tokens / input_tokens if input_tokens else 0
+    return (
+        f"input_tokens={input_tokens}, "
+        f"cached_input_tokens={cached_tokens}, "
+        f"cache_ratio={cache_ratio:.1%}, "
+        f"output_tokens={usage.get('output_tokens', 0)}, "
+        f"total_tokens={usage.get('total_tokens', 0)}"
+    )
+
+
+def hint_checkpoint_record(index: str, hint_obj: dict, usage: dict | None = None) -> dict:
+    record = {
+        "index": index,
+        "status": "ok",
+        "concise_hint": hint_obj["concise_hint"],
+        "detailed_method_hint": json.dumps(
+            hint_obj["detailed_method_hint"],
+            ensure_ascii=False,
+        ),
+        "detailed_scaffold_hint": json.dumps(
+            hint_obj["detailed_scaffold_hint"],
+            ensure_ascii=False,
+        ),
+        "model": MODEL,
+        "hint_valid": True,
+    }
+    if usage:
+        record.update(usage_record_fields(usage))
+    return record
+
+
 # =========================
 # API CALL
 # =========================
@@ -273,7 +369,12 @@ def call_openai_responses(client: OpenAI, question: str, solution: str) -> dict:
 
             content = response.output_text or ""
             obj = safe_json_loads(content)
-            return normalize_hint_obj(obj)
+            hint_obj = normalize_hint_obj(obj)
+            usage = extract_usage(response)
+            if usage:
+                print(f"Usage: {format_usage(usage)}")
+                hint_obj["_usage"] = usage
+            return hint_obj
 
         except Exception as e:
             last_error = repr(e)
@@ -317,7 +418,7 @@ def load_done_indices(path: str) -> set:
                     and obj.get("detailed_method_hint")
                     and obj.get("detailed_scaffold_hint")
                 ):
-                    done.add(obj["question_idx"])
+                    done.add(obj["index"])
             except Exception:
                 continue
 
@@ -348,16 +449,18 @@ def checkpoint_to_parquet():
         raise RuntimeError("No successful hint records found in checkpoint.")
 
     out_df = pd.DataFrame(records)
-    out_df = out_df.drop_duplicates("question_idx", keep="last")
+    out_df = out_df.drop_duplicates("index", keep="last")
+    optional_cols = [field for field in USAGE_FIELDS if field in out_df.columns]
     out_df = out_df[
         [
-            "question_idx",
+            "index",
             "concise_hint",
             "detailed_method_hint",
             "detailed_scaffold_hint",
             "model",
             "hint_valid",
         ]
+        + optional_cols
     ]
     Path(OUTPUT_PATH).parent.mkdir(parents=True, exist_ok=True)
     out_df.to_parquet(OUTPUT_PATH, index=False)
@@ -370,10 +473,10 @@ def checkpoint_to_parquet():
 
 
 def make_batch_request(row) -> dict:
-    question_idx = str(row["question_idx"])
+    index = str(row["index"])
     _, user_input = build_prompt_parts(row["question"], row["solution"])
     return {
-        "custom_id": question_idx,
+        "custom_id": index,
         "method": "POST",
         "url": "/v1/responses",
         "body": responses_body(user_input),
@@ -454,10 +557,13 @@ def download_file(client: OpenAI, file_id: str, output_path: Path):
 
 
 def parse_batch_output(output_path: Path):
+    usage_totals = {field: 0 for field in USAGE_FIELDS}
+    usage_count = 0
+
     with open(output_path, "r", encoding="utf-8") as f:
         for line in f:
             result = json.loads(line)
-            question_idx = str(result.get("custom_id", ""))
+            index = str(result.get("custom_id", ""))
             error = result.get("error")
             response = result.get("response") or {}
 
@@ -465,7 +571,7 @@ def parse_batch_output(output_path: Path):
                 append_jsonl(
                     CHECKPOINT_PATH,
                     {
-                        "question_idx": question_idx,
+                        "index": index,
                         "status": "error",
                         "error": json.dumps(error, ensure_ascii=False),
                         "model": MODEL,
@@ -477,7 +583,7 @@ def parse_batch_output(output_path: Path):
                 append_jsonl(
                     CHECKPOINT_PATH,
                     {
-                        "question_idx": question_idx,
+                        "index": index,
                         "status": "error",
                         "error": json.dumps(response, ensure_ascii=False),
                         "model": MODEL,
@@ -486,36 +592,35 @@ def parse_batch_output(output_path: Path):
                 continue
 
             try:
-                content = extract_responses_output_text(response.get("body") or {})
+                body = response.get("body") or {}
+                usage = extract_usage(body)
+                if usage:
+                    usage_count += 1
+                    for field in USAGE_FIELDS:
+                        usage_totals[field] += usage.get(field, 0)
+
+                content = extract_responses_output_text(body)
                 hint_obj = normalize_hint_obj(safe_json_loads(content))
                 append_jsonl(
                     CHECKPOINT_PATH,
-                    {
-                        "question_idx": question_idx,
-                        "status": "ok",
-                        "concise_hint": hint_obj["concise_hint"],
-                        "detailed_method_hint": json.dumps(
-                            hint_obj["detailed_method_hint"],
-                            ensure_ascii=False,
-                        ),
-                        "detailed_scaffold_hint": json.dumps(
-                            hint_obj["detailed_scaffold_hint"],
-                            ensure_ascii=False,
-                        ),
-                        "model": MODEL,
-                        "hint_valid": True,
-                    },
+                    hint_checkpoint_record(index, hint_obj, usage),
                 )
             except Exception as e:
                 append_jsonl(
                     CHECKPOINT_PATH,
                     {
-                        "question_idx": question_idx,
+                        "index": index,
                         "status": "error",
                         "error": repr(e),
                         "model": MODEL,
                     },
                 )
+
+    if usage_count:
+        print(
+            f"Parsed usage for {usage_count} responses: "
+            f"{format_usage(usage_totals)}"
+        )
 
 
 def parse_batch_error_file(client: OpenAI, file_id: str, batch_id: str):
@@ -527,7 +632,7 @@ def parse_batch_error_file(client: OpenAI, file_id: str, batch_id: str):
             append_jsonl(
                 CHECKPOINT_PATH,
                 {
-                    "question_idx": str(result.get("custom_id", "")),
+                    "index": str(result.get("custom_id", "")),
                     "status": "error",
                     "error": json.dumps(result.get("error") or result, ensure_ascii=False),
                     "model": MODEL,
@@ -560,7 +665,7 @@ def chunked(items: list, size: int):
 def load_pending_rows(limit: int | None = None):
     df = pd.read_parquet(INPUT_PATH)
 
-    required_cols = {"question_idx", "question", "solution"}
+    required_cols = {"index", "question", "solution"}
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(f"Missing columns: {missing}")
@@ -570,8 +675,8 @@ def load_pending_rows(limit: int | None = None):
 
     rows = []
     for _, row in df.iterrows():
-        question_idx = str(row["question_idx"])
-        if question_idx in done:
+        index = str(row["index"])
+        if index in done:
             continue
         rows.append(row)
         if limit is not None and len(rows) >= limit:
@@ -584,32 +689,18 @@ def load_pending_rows(limit: int | None = None):
 def run_sync(client: OpenAI, limit: int | None = None):
     rows = load_pending_rows(limit=limit)
     for row in rows:
-        question_idx = str(row["question_idx"])
+        index = str(row["index"])
         try:
             hint_obj = call_openai_responses(client, row["question"], row["solution"])
             append_jsonl(
                 CHECKPOINT_PATH,
-                {
-                    "question_idx": question_idx,
-                    "status": "ok",
-                    "concise_hint": hint_obj["concise_hint"],
-                    "detailed_method_hint": json.dumps(
-                        hint_obj["detailed_method_hint"],
-                        ensure_ascii=False,
-                    ),
-                    "detailed_scaffold_hint": json.dumps(
-                        hint_obj["detailed_scaffold_hint"],
-                        ensure_ascii=False,
-                    ),
-                    "model": MODEL,
-                    "hint_valid": True,
-                },
+                hint_checkpoint_record(index, hint_obj, hint_obj.get("_usage")),
             )
         except Exception as e:
             append_jsonl(
                 CHECKPOINT_PATH,
                 {
-                    "question_idx": question_idx,
+                    "index": index,
                     "status": "error",
                     "error": repr(e),
                     "model": MODEL,

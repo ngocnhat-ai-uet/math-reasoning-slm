@@ -1,0 +1,25 @@
+experiment_id: TN01_base_inference
+run_id: tn01_gemma4e2b_base_bespoke_nohint_pv1_dv1
+
+model:
+  model_name: gemma-4-e2b-it
+  checkpoint: base
+  tokenizer: gemma-4-e2b-it-reasoning-tokenizer
+
+dataset:
+  name: bespoke
+  path: data/processed/problems.parquet
+
+prompt:
+  condition: nohint
+  prompt_version: pv1
+
+decoding:
+  decoding_config_version: dv1
+  temperature: 0.0
+  top_p: 1.0
+  max_new_tokens: 2048
+
+eval:
+  answer_extractor_version: extract_boxed_v1
+  judge_version: exact_match_v1

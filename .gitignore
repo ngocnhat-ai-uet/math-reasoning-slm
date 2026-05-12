@@ -4,8 +4,8 @@ run.py
 # notebook, archive
 archive/
 notebook/
-data/
-experiments/
+# data/
+# experiments/
 
 # Byte-compiled
 __pycache__/

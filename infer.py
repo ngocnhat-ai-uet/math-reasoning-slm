@@ -68,7 +68,12 @@ def load_hints(hint_path):
     else:
         raise ValueError(f"Unsupported hints format: {hint_path}")
 
-    return {str(item["question_idx"]): item for item in records if "question_idx" in item}
+    missing_index = [i for i, item in enumerate(records) if "index" not in item]
+    if missing_index:
+        first_missing = missing_index[0]
+        raise ValueError(f"Hint record at position {first_missing} has no required 'index' field")
+
+    return {str(item["index"]): item for item in records}
 
 
 def get_question(record):
@@ -78,11 +83,11 @@ def get_question(record):
     raise ValueError(f"Record has no question/instruction/prompt field: {record}")
 
 
-def get_question_idx(record, index):
-    for field in ("question_idx", "index", "id"):
+def get_index(record, fallback_index):
+    for field in ("index", "id", "question_idx"):
         if field in record and record[field] is not None:
             return record[field]
-    return index
+    return fallback_index
 
 
 def resolve_hint(record, hints_by_id, condition):
@@ -98,8 +103,8 @@ def resolve_hint(record, hints_by_id, condition):
     if hint_field is None:
         raise ValueError(f"Unsupported prompt condition: {condition}")
 
-    question_idx = str(record.get("question_idx", record.get("index", record.get("id", ""))))
-    hint_record = hints_by_id.get(question_idx, {})
+    record_index = str(get_index(record, ""))
+    hint_record = hints_by_id.get(record_index, {})
     hint = hint_record.get(hint_field)
     if hint is None:
         return None
@@ -171,12 +176,12 @@ def render_inputs(records, config):
 
     prompt_config = config.get("prompt", {})
     condition = prompt_config.get("condition", "nohint") # return nohint/concise/detail...
-    hints_by_id = load_hints(config["dataset"].get("hint_path")) # dict: question_idx : [list of hint]
+    hints_by_id = load_hints(config["dataset"].get("hint_path")) # dict: index : hint record
 
     rendered = []
     for index, record in enumerate(records):
         question = get_question(record)
-        question_idx = get_question_idx(record, index)
+        record_index = get_index(record, index)
         hint = resolve_hint(record, hints_by_id, condition)
         prompt_text = build_prompt_text(question, hint, prompt_config)
         messages = [
@@ -190,7 +195,7 @@ def render_inputs(records, config):
         )
         rendered.append(
             {
-                "question_idx": question_idx,
+                "index": record_index,
                 "question": question,
                 "hint": hint,
                 "label": record.get("answer", record.get("final_answer", record.get("label"))),
@@ -258,7 +263,7 @@ def generate(config):
                 first_output = output.outputs[0]
                 row = {
                     "run_id": config["run_id"],
-                    "question_idx": item["question_idx"],
+                    "index": item["index"],
                     "question": item["question"],
                     "hint": item["hint"],
                     "label": item["label"],

@@ -4,6 +4,7 @@ run.py
 # notebook, archive
 archive/
 notebook/
+prompts/
 # data/
 # experiments/
 

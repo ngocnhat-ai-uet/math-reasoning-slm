@@ -1,0 +1,51 @@
+{# =========================
+  Simple Qwen3 chat template
+  - No tools
+  - Supports reasoning_content
+  - Supports enable_thinking
+========================= #}
+
+{%- for message in messages %}
+    {%- if message.content is string %}
+        {%- set content = message.content %}
+    {%- else %}
+        {%- set content = '' %}
+    {%- endif %}
+
+    {%- if message.role == "system" %}
+        {{- '<|im_start|>system\n' + content + '<|im_end|>\n' }}
+
+    {%- elif message.role == "user" %}
+        {{- '<|im_start|>user\n' + content + '<|im_end|>\n' }}
+
+    {%- elif message.role == "assistant" %}
+        {%- set reasoning_content = '' %}
+
+        {# Case 1: reasoning is stored separately #}
+        {%- if message.reasoning_content is string %}
+            {%- set reasoning_content = message.reasoning_content %}
+
+        {# Case 2: reasoning is embedded inside content as <think>...</think> #}
+        {%- elif '</think>' in content %}
+            {%- set reasoning_content = content.split('</think>')[0].rstrip('\n').split('<think>')[-1].lstrip('\n') %}
+            {%- set content = content.split('</think>')[-1].lstrip('\n') %}
+        {%- endif %}
+
+        {%- if reasoning_content %}
+            {{- '<|im_start|>assistant\n<think>\n' + reasoning_content.strip('\n') + '\n</think>\n\n' + content.lstrip('\n') + '<|im_end|>\n' }}
+        {%- else %}
+            {{- '<|im_start|>assistant\n' + content + '<|im_end|>\n' }}
+        {%- endif %}
+
+    {%- endif %}
+{%- endfor %}
+
+{# Generation prompt #}
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n' }}
+
+    {# Qwen3 non-thinking mode: close an empty think block #}
+    {%- if enable_thinking is defined and enable_thinking is false %}
+        {{- '<think>\n\n</think>\n\n' }}
+    {%- endif %}
+{%- endif %}

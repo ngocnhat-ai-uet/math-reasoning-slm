@@ -1,32 +1,56 @@
 import json
 import argparse
 import logging
-import os
-from jinja2 import Environment, BaseLoader, FileSystemLoader
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import SFTTrainer,SFTConfig
+from trl import SFTTrainer, SFTConfig
 
 
-def formatting_func(examples):
-    env = Environment(loader=BaseLoader())
-    try:
-        message = {"content": examples["instruction"],"output":examples["output"]}
-        messages = [
-            {"role": "user", "content": examples["instruction"]},
-            {"role": "assistant", "content": examples["output"]},
-        ]
-        full_text = template.render(
-            messages=messages,
-            message=message,
-            add_generation_prompt=False,
-            add_output=True,
-            tools=[],
-        )
-        return full_text
-    except Exception as e:
-        logging.warning(f"Error processing sample: {str(e)}")
-        return ""
+def build_messages(example, default_system_prompt=None, include_assistant=True):
+    system_prompt = example.get("system") or default_system_prompt
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+
+    messages.append({"role": "user", "content": example["instruction"]})
+    if include_assistant:
+        messages.append({"role": "assistant", "content": example["output"]})
+
+    return messages
+
+
+def make_tokenize_func(tokenizer, max_length, default_system_prompt=None):
+    def tokenize_func(example):
+        try:
+            prompt_text = tokenizer.apply_chat_template(
+                build_messages(example, default_system_prompt, include_assistant=False),
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            full_text = tokenizer.apply_chat_template(
+                build_messages(example, default_system_prompt, include_assistant=True),
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+
+            prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+            tokenized = tokenizer(
+                full_text,
+                add_special_tokens=False,
+                truncation=True,
+                max_length=max_length,
+            )
+            labels = tokenized["input_ids"].copy()
+            prompt_length = min(len(prompt_ids), len(labels))
+            labels[:prompt_length] = [-100] * prompt_length
+            tokenized["labels"] = labels
+            return tokenized
+        except Exception as e:
+            logging.warning(f"Error processing sample: {str(e)}")
+            return {"input_ids": [], "attention_mask": [], "labels": []}
+
+    return tokenize_func
 
 
 def train(config):
@@ -36,26 +60,37 @@ def train(config):
         config["models"]["student"], 
         trust_remote_code=True
     )
+    if student_tokenizer.pad_token is None:
+        student_tokenizer.pad_token = student_tokenizer.eos_token
+
     student_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["student"],
-        trust_remote_code=True
+        trust_remote_code=True,
+        torch_dtype=torch.bfloat16,
     )
 
-    global template
-    full_path = config["dataset"]["template"]
-    template_dir = os.path.dirname(full_path)
-    template_file = os.path.basename(full_path)
-    env = Environment(loader=FileSystemLoader(template_dir))
-    template = env.get_template(template_file)
+    if student_tokenizer.chat_template is None:
+        raise ValueError("Student tokenizer has no chat_template; cannot use apply_chat_template.")
+
+    system_prompt = config["dataset"].get("system_prompt")
+    dataset_kwargs = config["training"].setdefault("dataset_kwargs", {})
+    dataset_kwargs.setdefault("skip_prepare_dataset", True)
     training_arguments = SFTConfig(**config["training"])
 
     dataset = dataset.shuffle(seed=config["dataset"]["seed"])
+    limit = config["dataset"].get("limit")
+    if limit is not None:
+        dataset["train"] = dataset["train"].select(range(min(limit, len(dataset["train"]))))
+
+    train_dataset = dataset["train"].map(
+        make_tokenize_func(student_tokenizer, training_arguments.max_length, system_prompt),
+        remove_columns=dataset["train"].column_names,
+    )
     trainer = SFTTrainer(
         model=student_model,
         processing_class=student_tokenizer,
         args=training_arguments,
-        train_dataset=dataset["train"],
-        formatting_func=formatting_func
+        train_dataset=train_dataset,
     )
         
     trainer.train()

@@ -5,8 +5,8 @@
   "output_root": "experiments",
   "dataset": {
     "name": "omni",
-    "data_path": "data/train/omni_math_dataset_gt2000.parquet",
-    "hint_path": "data/train/omni_hints_checkpoint_gt2000.parquet",
+    "data_path": "data/train/omni_dataset_gt2000.parquet",
+    "hint_path": "data/train/omni_hints_gt2000.parquet",
     "template": "configs/chat_template/chat_template.jinja",
     "limit": 1
   },

@@ -269,6 +269,7 @@ def generate(config):
                     "label": item["label"],
                     "model_output": first_output.text,
                     "output_token_length": len(getattr(first_output, "token_ids", []) or []),
+                    "input_text": item["input_text"],
                     "finish_reason": getattr(first_output, "finish_reason", None),
                 }
                 output_file.write(json.dumps(row, ensure_ascii=False) + "\n")

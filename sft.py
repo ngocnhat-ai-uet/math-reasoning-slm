@@ -66,7 +66,7 @@ def train(config):
     student_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["student"],
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
     )
 
     if student_tokenizer.chat_template is None:

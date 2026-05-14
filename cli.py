@@ -57,7 +57,7 @@ def process(job_type, config_path):
         config_path = os.path.abspath(config_path)
 
     entrypoints = {
-        "infer": "infer.py",
+        "infer": "07_infer.py",
         "sft": "sft.py",
         "dpo": "dpo.py",
     }

@@ -14,7 +14,8 @@ from vllm import LLM, SamplingParams
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-SYSTEM_PROMPT = r"You are a careful math solver. Think through the solution step by step before writing the final answer. Put the final answer inside \boxed{}."
+SYSTEM_PROMPT = r"You are a careful mathematical reasoning assistant. Before responding, reason in <think>...</think>. Use it to understand the task, identify relevant constraints, reason logically, verify key steps, and correct mistakes when found. Then respond clearly and follow the user's instructions."
+FINAL_ANSWER_INSTRUCTION = r"Put the final answer inside \boxed{}."
 
 # Input: dataset_path (jsonl/parquet)
 # Output: list of dict
@@ -112,6 +113,7 @@ def resolve_hint(record, hints_by_id, condition):
 
 
 def build_prompt_text(question, hint, prompt_config):
+    question = f"{FINAL_ANSWER_INSTRUCTION} {question}"
     if not hint:
         return question
     hint_format = prompt_config.get("hint_format", "{question}\n\nHint: {hint}")
@@ -126,23 +128,16 @@ def load_tokenizer_and_vllm(config, eos_token=None):
     logging.info(f"Loading ckpt and tokenizer: {model_path}")
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     tokenizer.padding_side = "left"
-    if eos_token:
-        eos_token_id = tokenizer.convert_tokens_to_ids(eos_token)
-        logging.info(f"eos_token {eos_token} from user input")
-    elif hasattr(tokenizer, "eos_token_id") and tokenizer.eos_token_id:
-        logging.info(f"Initial eos_token_id {tokenizer.eos_token_id} from tokenizer")
-        eos_token_id = tokenizer.eos_token_id
-        eos_token = tokenizer.convert_ids_to_tokens(eos_token_id)
-    else:
-        raise ValueError("No available eos_token or eos_token_id.")
 
-    try:
+    if eos_token:
+        logging.info(f"eos_token {eos_token} from user input")
         tokenizer.eos_token = eos_token
-        tokenizer.eos_token_id = eos_token_id
-        tokenizer.pad_token = eos_token
-        tokenizer.pad_token_id = eos_token_id
-    except Exception:
-        logging.info("[WARNING] Cannot set tokenizer.eos_token")
+
+    if tokenizer.eos_token is None:
+        raise ValueError("No available eos_token.")
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     logging.info(f"tokenizer's eos_token: {tokenizer.eos_token}, pad_token: {tokenizer.pad_token}")
     logging.info(f"tokenizer's eos_token_id: {tokenizer.eos_token_id}, pad_token_id: {tokenizer.pad_token_id}")

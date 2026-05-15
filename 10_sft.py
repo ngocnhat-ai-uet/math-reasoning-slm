@@ -1,6 +1,8 @@
 import json
 import argparse
 import logging
+from pathlib import Path
+
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -53,6 +55,31 @@ def make_tokenize_func(tokenizer, max_length, default_system_prompt=None):
     return tokenize_func
 
 
+def write_resolved_config(config, output_dir):
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    resolved_path = output_path / "config.resolved.yaml"
+    try:
+        import yaml
+
+        with open(resolved_path, "w", encoding="utf-8") as file:
+            yaml.safe_dump(config, file, sort_keys=False, allow_unicode=True)
+    except Exception:
+        with open(resolved_path, "w", encoding="utf-8") as file:
+            json.dump(config, file, ensure_ascii=False, indent=2)
+
+
+def resolve_output_dir(config):
+    if "run_id" not in config:
+        return config["training"]["output_dir"]
+
+    experiment_id = config.get("experiment_id", "TN02_sft")
+    root_dir = Path(config.get("output_root", "experiments"))
+    output_dir = root_dir / experiment_id / "runs" / config["run_id"]
+    config["training"]["output_dir"] = str(output_dir)
+    return config["training"]["output_dir"]
+
+
 def train(config):
     dataset = load_dataset("json", data_files=config["dataset"]["labeled_path"])
     
@@ -75,7 +102,9 @@ def train(config):
     system_prompt = config["dataset"].get("system_prompt")
     dataset_kwargs = config["training"].setdefault("dataset_kwargs", {})
     dataset_kwargs.setdefault("skip_prepare_dataset", True)
+    resolve_output_dir(config)
     training_arguments = SFTConfig(**config["training"])
+    write_resolved_config(config, training_arguments.output_dir)
 
     dataset = dataset.shuffle(seed=config["dataset"]["seed"])
     limit = config["dataset"].get("limit")
@@ -94,8 +123,8 @@ def train(config):
     )
         
     trainer.train()
-    trainer.save_model(config["training"]["output_dir"])
-    student_tokenizer.save_pretrained(config["training"]["output_dir"])
+    trainer.save_model(training_arguments.output_dir)
+    student_tokenizer.save_pretrained(training_arguments.output_dir)
 
 
 def main():

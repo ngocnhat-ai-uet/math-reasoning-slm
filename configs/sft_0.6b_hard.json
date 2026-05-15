@@ -1,26 +1,28 @@
 {
   "job_type": "sft",
+  "experiment_id": "TN02_sft",
+  "run_id": "tn02_le2000_sft_hard",
+  "output_root": "experiments",
   "dataset": {
-    "labeled_path": "data/train/omni_dataset_gt2000_sft.json",
+    "labeled_path": "data/sft/le2000_hard.json",
     "system_prompt": "You are a careful mathematical reasoning assistant. Before responding, reason in <think>...</think>. Use it to understand the task, identify relevant constraints, reason logically, verify key steps, and correct mistakes when found. Then respond clearly and follow the user's instructions.",
-    "limit": 5000,
     "seed": 9
   },
   "models": {
-    "student": "student/Qwen/Qwen2.5-0.5B-Instruct/"
+    "student": "experiments/TN02_sft/runs/tn02_le2000_sft_easy"
   },
   "training": {
-    "output_dir": "./result/",
+    "output_dir": "experiments/TN02_sft/runs/tn02_le2000_sft_hard",
     "num_train_epochs": 3,
     "per_device_train_batch_size": 32,
     "gradient_accumulation_steps": 3,
-    "max_length":512,
+    "max_length": 512,
     "dataset_kwargs": {
       "skip_prepare_dataset": true
     },
     "save_strategy": "epoch",
     "logging_steps": 1,
-    "learning_rate": 2e-5,
+    "learning_rate": 1e-5,
     "weight_decay": 0.05,
     "warmup_ratio": 0.1,
     "lr_scheduler_type": "cosine"

@@ -125,10 +125,32 @@ python 02_check_index_overlap.py data/train/omni_hints_gt2000.parquet data/train
 python 02_check_index_overlap.py data/train/omni_hints_le2000.parquet data/train/omni_dataset_le2000.parquet
 
 
+## SFT Curriculum
+python 08_sft_select_curriculum_indexes.py `
+  --prediction local_experiments/TN01_base_inference/runs/tn01_qwen3_0.6b_base_omni_le2000_detailmethod_pv1/prediction.jsonl `
+  --dataset local_data/omni/omni_dataset_le2000.parquet `
+  --target-hard-size 2000 `
+  --seed 9
+
+python 08_sft_select_curriculum_indexes.py `
+  --prediction local_experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/prediction.jsonl `
+  --dataset local_data/omni/omni_dataset_gt2000.parquet `
+  --target-hard-size 2000 `
+  --seed 9
+
+
+
+
+
+
+
 ## Create dataset for finetune
 
 ```bash
-python sft_prepare.py
+python 09_sft_prepare.py `
+  --input local_data/omni/omni_dataset_le2000.parquet `
+  --index-file local_data/sft_index/le2000_curriculum/phase2_hard_indexes.txt `
+  --output data/sft/le2000_hard.json
 ```
 
 

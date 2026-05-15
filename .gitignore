@@ -5,8 +5,8 @@ run.py
 archive/
 notebook/
 prompts/
-# data/
-experiments/
+local_experiments/
+local_data/
 
 # Byte-compiled
 __pycache__/

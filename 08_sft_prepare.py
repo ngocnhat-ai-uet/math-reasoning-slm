@@ -6,8 +6,9 @@ from pathlib import Path
 import pandas as pd
 
 
-DEFAULT_INPUT = "data/train/omni_dataset_gt2000_sub12k.parquet"
-DEFAULT_OUTPUT = "data/train/omni_dataset_gt2000_sub12k_sft.json"
+DEFAULT_INPUT = "data/train/omni_dataset_gt2000.parquet"
+DEFAULT_OUTPUT = "data/train/omni_dataset_gt2000_sft.json"
+FINAL_ANSWER_INSTRUCTION = r"Put the final answer inside \boxed{}."
 
 
 def clean_text(value):
@@ -43,6 +44,8 @@ def convert_dataset(input_path, output_path, limit=None):
         if not question or not solution:
             skipped += 1
             continue
+
+        question = f"{FINAL_ANSWER_INSTRUCTION} {question}"
 
         record = {
             "instruction": question,

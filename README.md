@@ -1,6 +1,6 @@
 # math-reasoning-slm
 
-## Infer training set
+## 1 - Infer training set
 
 - In window:
 
@@ -14,16 +14,12 @@
 bash run_omni_infer.sh
 ```
 
-## rule-based eval
+## 2 - Rule-based evaluate
 
 - Single run:
 
 ```bash
-python eval/rule_eval.py --input "experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_concise_pv1/generations.jsonl"
-
 python eval/rule_eval.py --input "experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/generations.jsonl"
-
-python eval/rule_eval.py --input "experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailscaffold_pv1/generations.jsonl"
 
 python eval/rule_eval.py --input "experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_nohint_pv1/generations.jsonl"
 ```
@@ -36,26 +32,46 @@ Get-ChildItem experiments/TN01_base_inference/runs -Directory | Where-Object Nam
 Get-ChildItem -Path experiments/TN01_base_inference/runs -Recurse -Filter generations.jsonl | ForEach-Object { python eval/rule_eval.py --input $_.FullName }
 ```
 
-## llm eval
+
+## 3 - Analysis
+
+### 3.1 - Negative analysis
+
+"""
+python eval/negative_analysis.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_0.6b_base_omni_le2000_detailmethod_pv1/prediction.jsonl
+
+python eval/negative_analysis.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/prediction.jsonl
+"""
+
+### 3.2 - Positive analysis
+
+"""
+python eval/positive_analysis.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/prediction.jsonl
+
+python eval/positive_analysis.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_0.6b_base_omni_le2000_detailmethod_pv1/prediction.jsonl
+"""
+
+## 4 - LLM evaluate
+
+### 4.1 - Export suspect false negative (for LLM judge)
+"""
+python eval/export_suspect_false_negative.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_0.6b_base_omni_le2000_detailmethod_pv1/prediction.jsonl
+
+python eval/export_suspect_false_negative.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/prediction.jsonl
+
+"""
+
+
+### 4.2 - LLM judge
 
 - Single run:
 
 ```bash
-python eval/llm_eval.py --prediction experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailscaffold_pv1/prediction.jsonl --false-negative experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailscaffold_pv1/llm_false_negative_cases.json
+python eval/llm_eval.py --false-negative experiments/TN01_base_inference/runs/tn01_qwen3_0.6b_base_omni_le2000_detailmethod_pv1/_false_negative_index.txt
+
+python eval/llm_eval.py --false-negative experiments/TN01_base_inference/runs/tn01_qwen3_1.7b_base_omni_gt2000_detailmethod_pv1/_false_negative_index.txt
 ```
 
-- Multiple runs:
-
-```powershell
-Get-ChildItem experiments/TN01_base_inference/runs -Directory | ForEach-Object {
-  $prediction = Join-Path $_.FullName "prediction.jsonl"
-  $falseNegative = Join-Path $_.FullName "llm_false_negative_cases.json"
-
-  if ((Test-Path $prediction) -and (Test-Path $falseNegative)) {
-    python eval/llm_eval.py --prediction $prediction --false-negative $falseNegative
-  }
-}
-```
 
 ## Random split to create subset dataset with 12k sample
 

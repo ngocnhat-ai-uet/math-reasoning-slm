@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, Set
 
 
 LLM_JUDGE_REASON = "llm_judge"
+PREDICTION_FILENAME = "prediction.jsonl"
 SUSPECT_FALSE_NEGATIVE_FILENAME = "suspect_false_negative.jsonl"
 
 
@@ -31,22 +32,18 @@ def _iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def _load_false_negative_ids(path: Path) -> Set[Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON at {path}: {exc}") from exc
-
-    if not isinstance(data, list):
-        raise ValueError(f"Expected a JSON array in {path}")
+    if path.suffix.lower() != ".txt":
+        raise ValueError(f"Expected a .txt false-negative index file, got: {path}")
 
     ids = set()
-    for row_index, row in enumerate(data):
-        if not isinstance(row, dict):
-            raise ValueError(f"Expected JSON object in {path} at array index {row_index}")
-        if "index" not in row:
-            raise ValueError(f"Missing index in {path} at array index {row_index}")
-        ids.add(row["index"])
-
+    with path.open("r", encoding="utf-8-sig") as file:
+        for line_number, line in enumerate(file, start=1):
+            index = line.strip()
+            if not index:
+                continue
+            if " " in index or "\t" in index:
+                raise ValueError(f"Expected one index per line at {path}:{line_number}")
+            ids.add(index)
     return ids
 
 
@@ -130,9 +127,14 @@ def apply_llm_judgement(
         raise
 
     missing_ids = false_negative_ids - seen_ids
-    if seen_ids:
+    if seen_ids and suspect_false_negative_path.is_file():
         suspect_total, suspect_removed = _remove_ids_from_jsonl(
             suspect_false_negative_path, seen_ids
+        )
+    elif seen_ids:
+        print(
+            "Warning: suspect false-negative file not found, "
+            f"skip removal: {suspect_false_negative_path}"
         )
 
     print(f"Prediction: {prediction_path}")
@@ -153,11 +155,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Apply LLM false-negative judgements to prediction.jsonl."
     )
-    parser.add_argument("--prediction", required=True, help="Path to prediction.jsonl")
+    parser.add_argument(
+        "--prediction",
+        help=(
+            "Path to prediction.jsonl. Defaults to prediction.jsonl next to "
+            "--false-negative."
+        ),
+    )
     parser.add_argument(
         "--false-negative",
         required=True,
-        help="Path to llm_false_negative_cases.json",
+        help="Path to one-index-per-line _false_negative_index.txt file",
     )
     parser.add_argument(
         "--suspect-false-negative",
@@ -171,9 +179,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    false_negative_path = Path(args.false_negative)
+    prediction_path = (
+        Path(args.prediction)
+        if args.prediction
+        else false_negative_path.with_name(PREDICTION_FILENAME)
+    )
     apply_llm_judgement(
-        prediction_path=Path(args.prediction),
-        false_negative_path=Path(args.false_negative),
+        prediction_path=prediction_path,
+        false_negative_path=false_negative_path,
         suspect_false_negative_path=(
             Path(args.suspect_false_negative) if args.suspect_false_negative else None
         ),

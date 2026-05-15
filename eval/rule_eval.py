@@ -2,14 +2,10 @@
 """
 I/O
 - Input rows use `label` (ground truth) and `model_output` (raw generation).
-- Writes two files next to the input generations file:
-   prediction.jsonl, suspect_false_negative.jsonl.
+- Writes `prediction.jsonl` next to the input generations file.
 - Prediction rows contain:
-   run_id, question_idx, label, extracted_answer, is_correct, reason,
+   run_id, index, label, extracted_answer, is_correct, reason,
    output_token_length, finish_reason, last_box_source, think_type.
-- Suspect false-negative rows contain no-match cases where label or extracted
-  answer is not a simple integer/single-letter answer:
-   question_idx, label, extracted_answer.
 
 Extraction policy:
 - If the prediction contains a valid last `\\boxed{...}`, use its content as
@@ -40,17 +36,16 @@ LAST_BOX_SOURCE_THOUGHT = "thought"
 LAST_BOX_SOURCE_THOUGHT_NO_CLOSE = "thought_no_close"
 LAST_BOX_SOURCE_NONE = "none"
 
-THINK_TYPE_NO_THOUGHT = "no_thought"
-THINK_TYPE_THOUGHT_ANSWER_ONLY = "thought_answer_only"
-THINK_TYPE_NORMAL_THOUGHT = "normal_thought"
-THINK_TYPE_UNCLOSED_THOUGHT = "unclosed_thought"
+THINK_TYPE_MISSING_THINK = "missing_think"
+THINK_TYPE_UNCLOSED_THINK = "unclosed_think"
+THINK_TYPE_SHORT_THINK = "short_think"
+THINK_TYPE_REASONING_THINK = "reasoning_think"
+THINK_SHORT_TEXT_THRESHOLD = 50
 
 THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
-REASON_NO_MATCH = "no_match"
 PREDICTION_FILENAME = "prediction.jsonl"
-SUSPECT_FALSE_NEGATIVE_FILENAME = "suspect_false_negative.jsonl"
 
 
 def _iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
@@ -79,21 +74,18 @@ def classify_think_type(text: Any) -> str:
     has_open = THINK_OPEN in s
     has_close = THINK_CLOSE in s
 
-    if has_open and not has_close:
-        return THINK_TYPE_UNCLOSED_THOUGHT
-
     if not has_close:
-        return THINK_TYPE_NO_THOUGHT
+        if has_open:
+            return THINK_TYPE_UNCLOSED_THINK
+        return THINK_TYPE_MISSING_THINK
 
     thought_text = _thought_text_before_close(s)
-    if not thought_text.strip():
-        return THINK_TYPE_NO_THOUGHT
-
     without_boxes = matcher.remove_valid_boxed_expressions(thought_text)
-    if re.sub(r"[ \t\r\n]+", "", without_boxes) == "":
-        return THINK_TYPE_THOUGHT_ANSWER_ONLY
+    normalized_think_text = re.sub(r"[ \t\r\n]+", " ", without_boxes).strip()
+    if len(normalized_think_text) < THINK_SHORT_TEXT_THRESHOLD:
+        return THINK_TYPE_SHORT_THINK
 
-    return THINK_TYPE_NORMAL_THOUGHT
+    return THINK_TYPE_REASONING_THINK
 
 
 def classify_last_box_source(text: Any) -> str:
@@ -122,32 +114,10 @@ def classify_last_box_source(text: Any) -> str:
     return LAST_BOX_SOURCE_SOLUTION
 
 
-def is_integer_answer(value: Any) -> bool:
-    if value is None:
-        return False
-
-    return bool(re.fullmatch(r"[+-]?\d+", str(value).strip()))
-
-
-def is_single_letter_answer(value: Any) -> bool:
-    if value is None:
-        return False
-
-    return bool(re.fullmatch(r"[A-Za-z]", str(value).strip()))
-
-
-def is_simple_answer(value: Any) -> bool:
-    return is_integer_answer(value) or is_single_letter_answer(value)
-
-
-def should_keep_suspect_false_negative(label: Any, extracted_answer: Any) -> bool:
-    return (not is_simple_answer(label)) or (not is_simple_answer(extracted_answer))
-
-
 def _build_prediction_row(
     *,
     row_run_id: str,
-    question_idx: Any,
+    index: Any,
     label: Any,
     result: Any,
     output_token_length: Any,
@@ -157,7 +127,7 @@ def _build_prediction_row(
 ) -> Dict[str, Any]:
     return {
         "run_id": row_run_id,
-        "question_idx": question_idx,
+        "index": index,
         "label": matcher.to_text(label),
         "extracted_answer": result.extracted_answer,
         "is_correct": 1 if result.matched else 0,
@@ -175,20 +145,16 @@ def evaluate_file(
     pred_field: str = "model_output",
     question_field: str = "question",
     run_id_field: str = "run_id",
-    qid_field: str = "question_idx",
+    index_field: str = "index",
 ) -> None:
     output_dir = input_path.parent
     prediction_path = output_dir / PREDICTION_FILENAME
-    suspect_false_negative_path = output_dir / SUSPECT_FALSE_NEGATIVE_FILENAME
 
     total = 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with (
-        prediction_path.open("w", encoding="utf-8") as prediction_file,
-        suspect_false_negative_path.open("w", encoding="utf-8") as suspect_false_negative_file,
-    ):
+    with prediction_path.open("w", encoding="utf-8") as prediction_file:
         for row_index, row in enumerate(_iter_jsonl(input_path)):
             total += 1
 
@@ -196,7 +162,7 @@ def evaluate_file(
             pred_text = row.get(pred_field, "")
             question_text = row.get(question_field, "")
             row_run_id = matcher.to_text(row.get(run_id_field, ""))
-            question_idx = row.get(qid_field, row_index)
+            index = row.get(index_field, row_index)
 
             result = matcher.match_answer(gt, pred_text, question_text)
 
@@ -207,7 +173,7 @@ def evaluate_file(
 
             prediction_row = _build_prediction_row(
                 row_run_id=row_run_id,
-                question_idx=question_idx,
+                index=index,
                 label=gt,
                 result=result,
                 output_token_length=output_token_length,
@@ -217,22 +183,8 @@ def evaluate_file(
             )
             prediction_file.write(json.dumps(prediction_row, ensure_ascii=False) + "\n")
 
-            if result.reason == REASON_NO_MATCH and should_keep_suspect_false_negative(
-                gt,
-                result.extracted_answer,
-            ):
-                negative_row = {
-                    "question_idx": question_idx,
-                    "label": matcher.to_text(gt),
-                    "extracted_answer": result.extracted_answer,
-                }
-                suspect_false_negative_file.write(
-                    json.dumps(negative_row, ensure_ascii=False) + "\n"
-                )
-
     print(f"Input: {input_path}")
     print(f"Prediction: {prediction_path}")
-    print(f"Suspect false negative: {suspect_false_negative_path}")
     print(f"Total: {total}")
     print(f"SymPy available: {matcher.SYMPY_AVAILABLE}")
 
@@ -244,7 +196,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pred-field", default="model_output", help="Prediction field name")
     parser.add_argument("--question-field", default="question", help="Question text field name")
     parser.add_argument("--run-id-field", default="run_id", help="Run-id field name")
-    parser.add_argument("--qid-field", default="question_idx", help="Question-id field name")
+    parser.add_argument("--index-field", default="index", help="Question index field name")
     return parser.parse_args()
 
 
@@ -256,7 +208,7 @@ def main() -> None:
         pred_field=args.pred_field,
         question_field=args.question_field,
         run_id_field=args.run_id_field,
-        qid_field=args.qid_field,
+        index_field=args.index_field,
     )
 
 

@@ -29,3 +29,4 @@ pyarrow==20.0.0
 ollama==0.5.1
 sympy==1.14.0
 antlr4-python3-runtime==4.11.1
+hf

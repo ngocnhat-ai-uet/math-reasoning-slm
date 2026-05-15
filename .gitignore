@@ -6,7 +6,7 @@ archive/
 notebook/
 prompts/
 # data/
-# experiments/
+experiments/
 
 # Byte-compiled
 __pycache__/

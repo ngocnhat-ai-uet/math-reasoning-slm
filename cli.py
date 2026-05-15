@@ -58,7 +58,7 @@ def process(job_type, config_path):
 
     entrypoints = {
         "infer": "07_infer.py",
-        "sft": "sft.py",
+        "sft": "09_sft.py",
         "dpo": "dpo.py",
     }
     if job_type not in entrypoints:

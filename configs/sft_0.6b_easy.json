@@ -2,7 +2,7 @@
   "job_type": "sft",
   "experiment_id": "TN02_sft",
   "run_id": "tn02_le2000_sft_easy",
-  "output_root": "experiments",
+  "output_root": "experiments",`r`n  "env": {`r`n    "TOKENIZERS_PARALLELISM": "false"`r`n  },
   "dataset": {
     "labeled_path": "data/sft/le2000_easy.json",
     "system_prompt": "You are a careful mathematical reasoning assistant. Before responding, reason in <think>...</think>. Use it to understand the task, identify relevant constraints, reason logically, verify key steps, and correct mistakes when found. Then respond clearly and follow the user's instructions.",
@@ -22,6 +22,7 @@
     },
     "save_strategy": "epoch",
     "logging_steps": 1,
+    "use_8bit_optimizer": true,
     "learning_rate": 1e-5,
     "weight_decay": 0.05,
     "warmup_ratio": 0.1,

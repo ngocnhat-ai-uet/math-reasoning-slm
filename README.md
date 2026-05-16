@@ -14,6 +14,20 @@
 bash run_omni_infer.sh
 ```
 
+## 1.1 - SFT training
+
+- In window:
+
+```powershell
+.\run_sft.ps1
+```
+
+- In server:
+
+```bash
+bash run_sft.sh
+```
+
 ## 2 - Rule-based evaluate
 
 - Single run:
@@ -152,6 +166,5 @@ python 09_sft_prepare.py `
   --index-file local_data/sft_index/le2000_curriculum/phase2_hard_indexes.txt `
   --output data/sft/le2000_hard.json
 ```
-
 
 

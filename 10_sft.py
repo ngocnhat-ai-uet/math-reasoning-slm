@@ -100,10 +100,21 @@ def train(config):
         raise ValueError("Student tokenizer has no chat_template; cannot use apply_chat_template.")
 
     system_prompt = config["dataset"].get("system_prompt")
-    dataset_kwargs = config["training"].setdefault("dataset_kwargs", {})
-    dataset_kwargs.setdefault("skip_prepare_dataset", True)
     resolve_output_dir(config)
-    training_arguments = SFTConfig(**config["training"])
+
+    training_config = dict(config["training"])
+    if training_config.pop("use_8bit_optimizer", False):
+        if training_config.get("optim") not in (None, "adamw_bnb_8bit"):
+            logging.warning(
+                "use_8bit_optimizer=True overrides training.optim=%s to adamw_bnb_8bit",
+                training_config["optim"],
+            )
+        training_config["optim"] = "adamw_bnb_8bit"
+
+    dataset_kwargs = training_config.setdefault("dataset_kwargs", {})
+    dataset_kwargs.setdefault("skip_prepare_dataset", True)
+    config["training"] = training_config
+    training_arguments = SFTConfig(**training_config)
     write_resolved_config(config, training_arguments.output_dir)
 
     dataset = dataset.shuffle(seed=config["dataset"]["seed"])

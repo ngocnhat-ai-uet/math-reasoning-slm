@@ -1,11 +1,12 @@
 import json
 import argparse
 import logging
+import csv
 from pathlib import Path
 
 import torch
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from trl import SFTTrainer, SFTConfig
 
 
@@ -80,6 +81,50 @@ def resolve_output_dir(config):
     return config["training"]["output_dir"]
 
 
+class MetricsHistoryCallback(TrainerCallback):
+    CSV_FIELDS = [
+        "step",
+        "epoch",
+        "loss",
+        "train_loss",
+        "mean_token_accuracy",
+        "learning_rate",
+        "grad_norm",
+        "num_tokens",
+    ]
+
+    def __init__(self, output_dir):
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        self.jsonl_path = output_path / "train_metrics_history.jsonl"
+        self.csv_path = output_path / "train_metrics_history.csv"
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not state.is_world_process_zero or not logs:
+            return
+
+        record = {
+            "step": state.global_step,
+            "epoch": logs.get("epoch", state.epoch),
+            "loss": logs.get("loss"),
+            "train_loss": logs.get("train_loss"),
+            "mean_token_accuracy": logs.get("mean_token_accuracy"),
+            "learning_rate": logs.get("learning_rate"),
+            "grad_norm": logs.get("grad_norm"),
+            "num_tokens": logs.get("num_input_tokens_seen"),
+        }
+
+        with open(self.jsonl_path, "a", encoding="utf-8") as file:
+            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        csv_exists = self.csv_path.exists() and self.csv_path.stat().st_size > 0
+        with open(self.csv_path, "a", encoding="utf-8", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=self.CSV_FIELDS)
+            if not csv_exists:
+                writer.writeheader()
+            writer.writerow(record)
+
+
 def train(config):
     dataset = load_dataset("json", data_files=config["dataset"]["labeled_path"])
     
@@ -133,6 +178,7 @@ def train(config):
         processing_class=student_tokenizer,
         args=training_arguments,
         train_dataset=train_dataset,
+        callbacks=[MetricsHistoryCallback(training_arguments.output_dir)],
     )
         
     trainer.train()

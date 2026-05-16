@@ -21,8 +21,9 @@
     "dataset_kwargs": {
       "skip_prepare_dataset": true
     },
-    "save_strategy": "epoch",
+    "save_strategy": "no",
     "logging_steps": 1,
+    "include_num_input_tokens_seen": true,
     "use_8bit_optimizer": true,
     "learning_rate": 1e-5,
     "weight_decay": 0.05,

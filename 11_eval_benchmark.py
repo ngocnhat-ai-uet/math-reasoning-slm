@@ -1,12 +1,15 @@
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
-
+from vllm import LLM
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
+from vllm import SamplingParams
+
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -21,7 +24,7 @@ def load_records(dataset_config):
     suffix = Path(dataset_path).suffix.lower()
 
     if suffix == ".json":
-        with open(dataset_path, "r", encoding="utf-8") as file:
+        with open(dataset_path, "r", encoding="utf-8-sig") as file:
             data = json.load(file)
         if not isinstance(data, list):
             raise ValueError(f"Expected a JSON list in {dataset_path}")
@@ -29,7 +32,7 @@ def load_records(dataset_config):
 
     if suffix == ".jsonl":
         records = []
-        with open(dataset_path, "r", encoding="utf-8") as file:
+        with open(dataset_path, "r", encoding="utf-8-sig") as file:
             for line in file:
                 line = line.strip()
                 if line:
@@ -68,19 +71,7 @@ def build_prompt_text(question):
     question = f"{FINAL_ANSWER_INSTRUCTION} {question}"
     return question
 
-
-def validate_config(config):
-    dataset_config = config.get("dataset", {})
-    if "template" in dataset_config:
-        raise ValueError(
-            "dataset.template is no longer supported in 11_eval_benchmark.py. "
-            "Please remove this field and use the model tokenizer chat template."
-        )
-
-
-def load_tokenizer_and_vllm(config, eos_token=None):
-    from vllm import LLM
-
+def load_tokenizer_and_vllm(config):
     model_path = config["models"].get("student") or config["models"].get("model")
     model_revision = config["models"].get("revision")
     if not model_path:
@@ -94,10 +85,6 @@ def load_tokenizer_and_vllm(config, eos_token=None):
         tokenizer_kwargs["revision"] = model_revision
     tokenizer = AutoTokenizer.from_pretrained(model_path, **tokenizer_kwargs)
     tokenizer.padding_side = "left"
-
-    if eos_token:
-        logging.info(f"eos_token {eos_token} from user input")
-        tokenizer.eos_token = eos_token
 
     if tokenizer.eos_token is None:
         raise ValueError("No available eos_token.")
@@ -175,7 +162,7 @@ def prepare_run_dirs(config):
     experiment_id = config.get("experiment_id", "TN01_base_inference")
     run_id = config["run_id"]
     root_dir = Path(config.get("output_root", "experiments"))
-    run_dir = root_dir / experiment_id / "runs" / run_id
+    run_dir = root_dir / experiment_id / run_id
 
     run_dir.mkdir(parents=True, exist_ok=True)
     write_resolved_config(config, run_dir)
@@ -183,8 +170,6 @@ def prepare_run_dirs(config):
 
 
 def generate(config):
-    validate_config(config)
-
     records = load_records(config["dataset"])
     limit = config["dataset"].get("limit")
     if limit is not None:
@@ -194,8 +179,6 @@ def generate(config):
     rendered = render_inputs(records, config, tokenizer)
     run_dir = prepare_run_dirs(config)
     generations_path = run_dir / "generations.jsonl"
-
-    from vllm import SamplingParams
 
     batch_size = config["inference"].get("batch_size", 32)
     sampling_params = SamplingParams(

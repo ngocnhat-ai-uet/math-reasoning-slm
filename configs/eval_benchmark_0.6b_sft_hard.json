@@ -1,7 +1,7 @@
 {
   "job_type": "infer",
-  "experiment_id": "TN02_sft_eval",
-  "run_id": "tn02_qwen3_0.6b_hard_benchmark_merged",
+  "experiment_id": "TN02_sft",
+  "run_id": "tn02_eval_benchmark_0.6b_sft_hard",
   "output_root": "experiments",
   "dataset": {
     "name": "benchmark_merged",
@@ -22,7 +22,7 @@
     "attention_backend": null,
     "max_model_len": null,
     "max_new_tokens": 16384,
-    "batch_size": 512
+    "batch_size": 256
   },
   "models": {
     "student": "ngocnhat/qwen3-0.6b-math-sft",

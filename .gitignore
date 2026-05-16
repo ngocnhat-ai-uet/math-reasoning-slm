@@ -8,6 +8,7 @@ prompts/
 local_experiments/
 local_data/
 # data/
+score/
 
 # Byte-compiled
 __pycache__/

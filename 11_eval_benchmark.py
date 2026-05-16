@@ -1,21 +1,22 @@
 import argparse
+import copy
 import json
 import logging
 import os
 from pathlib import Path
-from vllm import LLM
+
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
-from vllm import SamplingParams
-
+from vllm import LLM, SamplingParams
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 SYSTEM_PROMPT = r"You are a careful mathematical reasoning assistant. Before responding, reason in <think>...</think>. Use it to understand the task, identify relevant constraints, reason logically, verify key steps, and correct mistakes when found. Then respond clearly and follow the user's instructions."
 FINAL_ANSWER_INSTRUCTION = r"Put the final answer inside \boxed{}."
+
 
 # Input: dataset_path (jsonl/parquet)
 # Output: list of dict
@@ -70,6 +71,7 @@ def get_dataset_name(record):
 def build_prompt_text(question):
     question = f"{FINAL_ANSWER_INSTRUCTION} {question}"
     return question
+
 
 def load_tokenizer_and_vllm(config):
     model_path = config["models"].get("student") or config["models"].get("model")
@@ -159,29 +161,17 @@ def write_resolved_config(config, run_dir):
 
 
 def prepare_run_dirs(config):
-    experiment_id = config.get("experiment_id", "TN01_base_inference")
     run_id = config["run_id"]
     root_dir = Path(config.get("output_root", "experiments"))
-    run_dir = root_dir / experiment_id / run_id
+    run_dir = root_dir / run_id
 
     run_dir.mkdir(parents=True, exist_ok=True)
     write_resolved_config(config, run_dir)
     return run_dir
 
 
-def generate(config):
-    records = load_records(config["dataset"])
-    limit = config["dataset"].get("limit")
-    if limit is not None:
-        records = records[: int(limit)]
-
-    tokenizer, llm = load_tokenizer_and_vllm(config)
-    rendered = render_inputs(records, config, tokenizer)
-    run_dir = prepare_run_dirs(config)
-    generations_path = run_dir / "generations.jsonl"
-
-    batch_size = config["inference"].get("batch_size", 32)
-    sampling_params = SamplingParams(
+def build_sampling_params(config, max_new_tokens):
+    return SamplingParams(
         n=1,
         top_k=config["inference"].get("top_k", 1),
         top_p=config["inference"].get("top_p", 1.0),
@@ -191,11 +181,23 @@ def generate(config):
         seed=config["inference"]["seed"],
         skip_special_tokens=False,
         ignore_eos=False,
-        max_tokens=config["inference"]["max_new_tokens"],
+        max_tokens=int(max_new_tokens),
         stop=["<turn|>"],
     )
 
-    with open(generations_path, "w", encoding="utf-8") as output_file:
+
+def write_jsonl(path, rows):
+    with open(path, "w", encoding="utf-8") as output_file:
+        for row in rows:
+            output_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def generate_records(records, config, tokenizer, llm, generations_path, max_new_tokens, write_mode):
+    rendered = render_inputs(records, config, tokenizer)
+    batch_size = config["inference"].get("batch_size", 32)
+    sampling_params = build_sampling_params(config, max_new_tokens)
+
+    with open(generations_path, write_mode, encoding="utf-8") as output_file:
         for start in tqdm(range(0, len(rendered), batch_size), desc="Generating responses"):
             batch = rendered[start:start + batch_size]
             outputs = llm.generate([item["input_text"] for item in batch], sampling_params)
@@ -215,15 +217,157 @@ def generate(config):
                 }
                 output_file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    logging.info(f"Generations written to {generations_path}")
+
+def split_length_generations(generations_path):
+    kept_rows = []
+    length_rows = []
+
+    with open(generations_path, "r", encoding="utf-8") as input_file:
+        for line in input_file:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if row.get("finish_reason") == "length":
+                length_rows.append(row)
+            else:
+                kept_rows.append(row)
+
+    write_jsonl(generations_path, kept_rows)
+    return kept_rows, length_rows
+
+
+def generation_key(row):
+    return (str(row.get("dataset", "unknown")), str(row.get("index")))
+
+
+def dataset_key(record, fallback_index):
+    return (get_dataset_name(record), str(get_index(record, fallback_index)))
+
+
+def to_retry_record(record, fallback_index):
+    return {
+        "dataset": get_dataset_name(record),
+        "index": get_index(record, fallback_index),
+        "label": record.get("answer", record.get("final_answer", record.get("label"))),
+        "question": get_question(record),
+    }
+
+
+def build_length_retry_dataset(records, length_rows):
+    length_keys = []
+    seen_length_keys = set()
+    for row in length_rows:
+        key = generation_key(row)
+        if key in seen_length_keys:
+            raise ValueError(f"Duplicate length generation key: {key}")
+        seen_length_keys.add(key)
+        length_keys.append(key)
+
+    source_records_by_key = {}
+    source_order = []
+    for index, record in enumerate(records):
+        key = dataset_key(record, index)
+        if key in source_records_by_key:
+            raise ValueError(f"Duplicate source dataset key: {key}")
+        source_records_by_key[key] = to_retry_record(record, index)
+        source_order.append(key)
+
+    missing_keys = set(length_keys) - set(source_records_by_key)
+    if missing_keys:
+        examples = sorted(missing_keys)[:10]
+        raise ValueError(
+            "Length rows contain keys not found in the source dataset; "
+            f"will not copy retry records from generations. Examples: {examples}"
+        )
+
+    length_key_set = set(length_keys)
+    retry_records = []
+    for key in source_order:
+        if key not in length_key_set:
+            continue
+        retry_records.append(source_records_by_key[key])
+
+    return retry_records
+
+
+def get_limited_records(config):
+    records = load_records(config["dataset"])
+    limit = config["dataset"].get("limit")
+    if limit is not None:
+        records = records[: int(limit)]
+    return records
+
+
+def get_retry_dataset_path(config, run_dir):
+    retry_config = config.get("length_retry", {})
+    dataset_name = retry_config.get("dataset_name", "length_retry_benchmark")
+    filename = dataset_name if dataset_name.endswith(".jsonl") else f"{dataset_name}.jsonl"
+    return run_dir / filename
+
+
+def apply_cli_overrides(config, args):
+    if args.run_id:
+        config["run_id"] = args.run_id
+    if args.student:
+        config.setdefault("models", {})["student"] = args.student
+    if args.revision:
+        config.setdefault("models", {})["revision"] = args.revision
+    return config
+
+
+def generate(config):
+    run_dir = prepare_run_dirs(config)
+    generations_path = run_dir / "generations.jsonl"
+    retry_dataset_path = get_retry_dataset_path(config, run_dir)
+
+    phase1_max_new_tokens = config["inference"].get("max_new_tokens", 4096)
+    phase2_max_new_tokens = config.get("length_retry", {}).get("max_new_tokens", 38912)
+
+    records = get_limited_records(config)
+    tokenizer, llm = load_tokenizer_and_vllm(config)
+
+    logging.info("Starting phase 1 with max_new_tokens=%s", phase1_max_new_tokens)
+    generate_records(records, config, tokenizer, llm, generations_path, phase1_max_new_tokens, "w")
+    logging.info("Phase 1 generations written to %s", generations_path)
+
+    kept_rows, length_rows = split_length_generations(generations_path)
+    logging.info(
+        "Filtered phase 1 generations: kept=%d, length_retry=%d",
+        len(kept_rows),
+        len(length_rows),
+    )
+
+    retry_records = build_length_retry_dataset(records, length_rows)
+    write_jsonl(retry_dataset_path, retry_records)
+    logging.info("Length retry dataset written to %s", retry_dataset_path)
+
+    if not retry_records:
+        logging.info("No length rows found; skipping phase 2")
+        return
+
+    retry_config = copy.deepcopy(config)
+    retry_config["dataset"]["name"] = retry_config.get("length_retry", {}).get(
+        "dataset_name", "length_retry_benchmark"
+    )
+    retry_config["dataset"]["data_path"] = str(retry_dataset_path)
+    retry_config["inference"]["max_new_tokens"] = phase2_max_new_tokens
+
+    logging.info("Starting phase 2 with max_new_tokens=%s", phase2_max_new_tokens)
+    generate_records(retry_records, retry_config, tokenizer, llm, generations_path, phase2_max_new_tokens, "a")
+    logging.info("Final generations written to %s", generations_path)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="path to the json config file")
+    parser.add_argument("--run-id", type=str, help="benchmark run id")
+    parser.add_argument("--student", type=str, help="student model path")
+    parser.add_argument("--revision", type=str, help="model/tokenizer revision")
     args = parser.parse_args()
     with open(args.config, "r", encoding="utf-8") as file:
         config = json.load(file)
+    config = apply_cli_overrides(config, args)
     generate(config)
 
 

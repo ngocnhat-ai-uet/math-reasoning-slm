@@ -1,8 +1,6 @@
 {
-  "job_type": "infer",
-  "experiment_id": "TN02_sft",
-  "run_id": "tn02_eval_benchmark_0.6b_sft_hard",
-  "output_root": "experiments",
+  "run_id": "benchmark_0.6b_sft_easy",
+  "output_root": "score",
   "dataset": {
     "name": "benchmark_merged",
     "data_path": "data/benchmark_merged.jsonl"
@@ -11,9 +9,9 @@
     "enable_chunked_prefill": true,
     "seed": 9,
     "gpu_memory_utilization": 0.9,
-    "temperature": 0.1,
+    "temperature": 0.6,
     "top_k": 20,
-    "top_p": 0.9,
+    "top_p": 0.95,
     "min_p": 0.0,
     "presence_penalty": 0.0,
     "enable_thinking": true,
@@ -21,11 +19,15 @@
     "enforce_eager": false,
     "attention_backend": null,
     "max_model_len": null,
-    "max_new_tokens": 16384,
-    "batch_size": 256
+    "max_new_tokens": 4096,
+    "batch_size": 512
   },
   "models": {
     "student": "ngocnhat/qwen3-0.6b-math-sft",
-    "revision": "hard_lr1e-5_warmup0.05_decay0.05"
+    "revision": "easy_lr1e-5_warmup0.1_decay0.05"
+  },
+  "length_retry": {
+    "dataset_name": "length_retry_benchmark",
+    "max_new_tokens": 38912
   }
 }

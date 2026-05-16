@@ -14,8 +14,8 @@
   "training": {
     "output_dir": "experiments/TN02_sft/runs/tn02_gt2000_sft_hard",
     "num_train_epochs": 3,
-    "per_device_train_batch_size": 32,
-    "gradient_accumulation_steps": 3,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 24,
     "gradient_checkpointing": true,
     "max_length": 4096,
     "dataset_kwargs": {
@@ -23,7 +23,7 @@
     },
     "save_strategy": "epoch",
     "logging_steps": 1,
-    "use_8bit_optimizer": true,
+    "use_8bit_optimizer": false,
     "learning_rate": 1e-5,
     "weight_decay": 0.05,
     "warmup_ratio": 0.1,

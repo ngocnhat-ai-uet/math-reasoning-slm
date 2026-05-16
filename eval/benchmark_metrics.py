@@ -77,16 +77,14 @@ def _value_label(value: Any) -> str:
     return str(value)
 
 
-def _build_generation_by_index(generations_path: Path) -> dict[str, Dict[str, Any]]:
-    by_index: dict[str, Dict[str, Any]] = {}
+def _build_generations_by_index(generations_path: Path) -> dict[str, list[Dict[str, Any]]]:
+    by_index: dict[str, list[Dict[str, Any]]] = defaultdict(list)
     for row_number, row in enumerate(_iter_jsonl(generations_path), start=1):
         index = row.get("index")
         if index is None:
             raise ValueError(f"Missing index in generations at {generations_path}:{row_number}")
         key = str(index)
-        if key in by_index:
-            raise ValueError(f"Duplicate index in generations: {key}")
-        by_index[key] = row
+        by_index[key].append(row)
     return by_index
 
 
@@ -94,14 +92,35 @@ def _enrich_prediction_rows(
     prediction_rows: list[Dict[str, Any]],
     generations_path: Path | None,
 ) -> list[Dict[str, Any]]:
-    generations_by_index: dict[str, Dict[str, Any]] = {}
+    generations_by_index: dict[str, list[Dict[str, Any]]] = {}
     if generations_path is not None and generations_path.exists():
-        generations_by_index = _build_generation_by_index(generations_path)
+        generations_by_index = _build_generations_by_index(generations_path)
 
     enriched = []
+    index_cursor: dict[str, int] = defaultdict(int)
     for row in prediction_rows:
         index = row.get("index")
-        gen_row = generations_by_index.get(str(index)) if index is not None else None
+        gen_row = None
+        if index is not None:
+            key = str(index)
+            candidates = generations_by_index.get(key, [])
+            cursor = index_cursor[key]
+            pred_dataset = _to_text(row.get("dataset"), "")
+
+            if pred_dataset:
+                for pos in range(cursor, len(candidates)):
+                    if _to_text(candidates[pos].get("dataset"), "") == pred_dataset:
+                        gen_row = candidates[pos]
+                        index_cursor[key] = pos + 1
+                        break
+
+            if gen_row is None and cursor < len(candidates):
+                gen_row = candidates[cursor]
+                index_cursor[key] = cursor + 1
+
+            if gen_row is None and candidates:
+                gen_row = candidates[-1]
+
         dataset = _to_text(row.get("dataset"), _to_text((gen_row or {}).get("dataset"), "unknown"))
         question = _to_text(row.get("question"), _to_text((gen_row or {}).get("question"), ""))
         model_output = _to_text(

@@ -1,0 +1,30 @@
+{
+  "job_type": "infer",
+  "experiment_id": "TN01_base_inference",
+  "run_id": "tn01_qwen3_0.6b_benchmark_merged_pv1",
+  "output_root": "local_experiments",
+  "dataset": {
+    "name": "benchmark_merged",
+    "data_path": "local_data/test/benchmark_merged.jsonl"
+  },
+  "inference": {
+    "enable_chunked_prefill": true,
+    "seed": 9,
+    "gpu_memory_utilization": 0.9,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "enable_thinking": true,
+    "trust_remote_code": true,
+    "enforce_eager": false,
+    "attention_backend": null,
+    "max_model_len": null,
+    "max_new_tokens": 16384,
+    "batch_size": 512
+  },
+  "models": {
+    "student": "Qwen/Qwen3-0.6B"
+  }
+}

@@ -4,7 +4,7 @@ I/O
 - Input rows use `label` (ground truth) and `model_output` (raw generation).
 - Writes `prediction.jsonl` next to the input generations file.
 - Prediction rows contain:
-   run_id, index, label, extracted_answer, is_correct, reason,
+   run_id, dataset, index, question, model_output, label, extracted_answer, is_correct, reason,
    output_token_length, finish_reason, last_box_source, think_type.
 
 Extraction policy:
@@ -49,7 +49,7 @@ PREDICTION_FILENAME = "prediction.jsonl"
 
 
 def _iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as file:
+    with path.open("r", encoding="utf-8-sig") as file:
         for line_number, line in enumerate(file, start=1):
             stripped = line.strip()
             if not stripped:
@@ -117,7 +117,10 @@ def classify_last_box_source(text: Any) -> str:
 def _build_prediction_row(
     *,
     row_run_id: str,
+    dataset: str,
     index: Any,
+    question: str,
+    model_output: str,
     label: Any,
     result: Any,
     output_token_length: Any,
@@ -127,7 +130,10 @@ def _build_prediction_row(
 ) -> Dict[str, Any]:
     return {
         "run_id": row_run_id,
+        "dataset": dataset,
         "index": index,
+        "question": question,
+        "model_output": model_output,
         "label": matcher.to_text(label),
         "extracted_answer": result.extracted_answer,
         "is_correct": 1 if result.matched else 0,
@@ -160,7 +166,8 @@ def evaluate_file(
 
             gt = row.get(label_field, "")
             pred_text = row.get(pred_field, "")
-            question_text = row.get(question_field, "")
+            question_text = matcher.to_text(row.get(question_field, ""))
+            dataset = matcher.to_text(row.get("dataset", "unknown"))
             row_run_id = matcher.to_text(row.get(run_id_field, ""))
             index = row.get(index_field, row_index)
 
@@ -173,7 +180,10 @@ def evaluate_file(
 
             prediction_row = _build_prediction_row(
                 row_run_id=row_run_id,
+                dataset=dataset,
                 index=index,
+                question=question_text,
+                model_output=matcher.to_text(pred_text),
                 label=gt,
                 result=result,
                 output_token_length=output_token_length,

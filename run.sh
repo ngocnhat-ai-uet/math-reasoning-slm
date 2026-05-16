@@ -23,3 +23,4 @@ python cli.py --config configs/sft_1.7b_full.json
 python 11_eval_benchmark.py --config configs/eval_benchmark_0.6b_sft_full.json
 python 11_eval_benchmark.py --config configs/eval_benchmark_0.6b_sft_easy.json
 python 11_eval_benchmark.py --config configs/eval_benchmark_0.6b_sft_hard.json
+

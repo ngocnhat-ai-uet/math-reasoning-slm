@@ -22,7 +22,7 @@
     "attention_backend": null,
     "max_model_len": null,
     "max_new_tokens": 16384,
-    "batch_size": 256
+    "batch_size": 512
   },
   "models": {
     "student": "ngocnhat/qwen3-0.6b-math-sft",

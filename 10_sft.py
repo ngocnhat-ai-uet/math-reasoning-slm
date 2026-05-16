@@ -95,6 +95,8 @@ def train(config):
         trust_remote_code=True,
         dtype=torch.bfloat16,
     )
+    # KV cache is for autoregressive generation; disable it during training.
+    student_model.config.use_cache = False
 
     if student_tokenizer.chat_template is None:
         raise ValueError("Student tokenizer has no chat_template; cannot use apply_chat_template.")

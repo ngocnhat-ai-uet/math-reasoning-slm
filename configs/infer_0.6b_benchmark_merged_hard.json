@@ -1,7 +1,7 @@
 {
   "job_type": "infer",
   "experiment_id": "TN02_sft_eval",
-  "run_id": "tn02_qwen3_0.6b_full_benchmark_merged",
+  "run_id": "tn02_qwen3_0.6b_hard_benchmark_merged",
   "output_root": "experiments",
   "dataset": {
     "name": "benchmark_merged",
@@ -26,6 +26,6 @@
   },
   "models": {
     "student": "ngocnhat/qwen3-0.6b-math-sft",
-    "revision": "full_lr1e-5_warmup0.1_decay0.05"
+    "revision": "hard_lr1e-5_warmup0.05_decay0.05"
   }
 }

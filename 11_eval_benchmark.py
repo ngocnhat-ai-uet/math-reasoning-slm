@@ -82,11 +82,17 @@ def load_tokenizer_and_vllm(config, eos_token=None):
     from vllm import LLM
 
     model_path = config["models"].get("student") or config["models"].get("model")
+    model_revision = config["models"].get("revision")
     if not model_path:
         raise ValueError("Config must define models.student or models.model")
 
     logging.info(f"Loading ckpt and tokenizer: {model_path}")
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    if model_revision:
+        logging.info(f"Using model/tokenizer revision: {model_revision}")
+    tokenizer_kwargs = {"trust_remote_code": True}
+    if model_revision:
+        tokenizer_kwargs["revision"] = model_revision
+    tokenizer = AutoTokenizer.from_pretrained(model_path, **tokenizer_kwargs)
     tokenizer.padding_side = "left"
 
     if eos_token:
@@ -108,7 +114,7 @@ def load_tokenizer_and_vllm(config, eos_token=None):
         os.environ["VLLM_ATTENTION_BACKEND"] = attention_backend
         logging.info(f"Using vLLM attention backend: {attention_backend}")
 
-    llm = LLM(
+    llm_kwargs = dict(
         model=model_path,
         tensor_parallel_size=num_gpus,
         enable_chunked_prefill=config["inference"]["enable_chunked_prefill"],
@@ -118,6 +124,9 @@ def load_tokenizer_and_vllm(config, eos_token=None):
         enforce_eager=config["inference"]["enforce_eager"],
         max_model_len=config["inference"]["max_model_len"],
     )
+    if model_revision:
+        llm_kwargs["revision"] = model_revision
+    llm = LLM(**llm_kwargs)
     logging.info("vLLM model loaded successfully")
     return tokenizer, llm
 
